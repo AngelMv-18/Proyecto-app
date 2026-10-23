@@ -16,6 +16,7 @@ import { financeRoutes } from './routes/finance.js';
 import { insightRoutes } from './routes/insights.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { dataRoutes } from './routes/data.js';
+import { notifyRoutes } from './routes/notify.js';
 
 // Rutas que no requieren sesión de cookie.
 const PUBLIC = new Set(['/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/auth/login/2fa', '/api/integrations/gmail/callback', '/api/ingest/notification']);
@@ -80,6 +81,7 @@ export async function buildApp() {
   await app.register(insightRoutes);
   await app.register(integrationRoutes);
   await app.register(dataRoutes);
+  await app.register(notifyRoutes);
 
   // Interfaz web compilada (despliegue de un solo proceso).
   const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist');

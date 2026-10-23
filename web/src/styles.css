@@ -177,3 +177,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 0.9rem; } .tbl th
 .login { min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
 .login .card { width: 100%; max-width: 420px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; overflow-wrap: anywhere; word-break: break-word; background: var(--bg2); padding: 1px 5px; border-radius: 6px; }

@@ -24,5 +24,5 @@
 - La base de datos **no está cifrada en disco** por la app (usa cifrado de disco/volumen en tu hosting).
 - **HTTPS** lo aporta tu despliegue (proxy); la app no lo termina.
 - Los comprobantes se guardan en la base de datos (≤3 MB cada uno) sin análisis antivirus.
-- Sin notificaciones push (las alertas son dentro de la app).
+- Las notificaciones push pasan por el servicio push del navegador (Google FCM en Chrome); en **modo privado** (por defecto) no llevan importes ni comercios. El contenido de Web Push va cifrado extremo a extremo (RFC 8291).
 - No se ha hecho una auditoría de seguridad externa.

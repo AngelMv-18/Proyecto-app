@@ -58,6 +58,51 @@ function TwoFactor() {
   );
 }
 
+const b64ToBytes = (b64: string) => { const p = '='.repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
+
+function PushCard() {
+  const { data: st, reload } = useApi<any>('/api/push/status');
+  const [run, busy] = useAction();
+  const [here, setHere] = useState<boolean | null>(null);
+  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const check = async () => { try { const r = await navigator.serviceWorker.getRegistration(); setHere(Boolean(await r?.pushManager.getSubscription())); } catch { setHere(false); } };
+  if (supported && here === null) check();
+  if (!st) return null;
+  const save = (patch: any) => run(() => api.patch('/api/me', { settings: patch }), 'Preferencias guardadas').then(reload);
+  const enable = async () => {
+    if (Notification.permission === 'denied') return toast('Las notificaciones están bloqueadas para este sitio en el navegador. Actívalas en los ajustes del sitio.', 'error');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return toast('No se concedió el permiso de notificaciones', 'error');
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(st.public_key) });
+    await run(() => api.post('/api/push/subscribe', sub.toJSON()), 'Notificaciones activadas en este dispositivo');
+    check(); reload();
+  };
+  const disable = async () => {
+    const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription();
+    if (sub) { await run(() => api.post('/api/push/unsubscribe', { endpoint: sub.endpoint })); await sub.unsubscribe(); }
+    check(); reload();
+  };
+  return (
+    <section className="card"><h2>Notificaciones y resúmenes</h2>
+      {!st.configured ? <p className="small muted" style={{ marginTop: 0 }}><span className="badge">No configurado</span> El servidor no tiene claves VAPID ({st.missing.join(', ')}). Genera unas con <code>npx web-push generate-vapid-keys</code>. Mientras tanto, las alertas y resúmenes aparecen dentro de la app.</p>
+        : !supported ? <p className="small muted">Este navegador no admite notificaciones push. En Android usa Chrome e instala la app (“Agregar a pantalla de inicio”).</p>
+        : <div className="row wrap" style={{ marginBottom: 10 }}>
+            <span className={`badge ${here ? 'teal' : ''}`}>{here ? 'Activas en este dispositivo' : 'Inactivas en este dispositivo'}</span><span className="xs faint">{st.devices} dispositivo(s)</span>
+            {here ? <><button className="btn sm" disabled={busy} onClick={() => run(() => api.post('/api/push/test'), 'Notificación de prueba enviada')}>Probar</button><button className="btn sm ghost" onClick={disable}>Desactivar aquí</button></> : <button className="btn sm primary" disabled={busy} onClick={() => enable().catch(toastError)}>Activar en este dispositivo</button>}
+          </div>}
+      <Switch label="Modo privado" hint="La pantalla de bloqueo no muestra importes ni comercios" checked={st.push.private} onChange={(v) => save({ push: { private: v } })} />
+      <Field id="psev" label="Enviar al teléfono alertas desde"><select id="psev" className="input" value={st.push.min_severity} onChange={(e) => save({ push: { min_severity: e.target.value } })}><option value="info">Informativas</option><option value="warning">Advertencias</option><option value="critical">Solo críticas</option></select></Field>
+      <div className="hr" /><h3 style={{ marginBottom: 4 }}>Resúmenes automáticos</h3>
+      <Switch label="Diario (20:00)" checked={st.digests.daily} onChange={(v) => save({ digests: { daily: v } })} />
+      <Switch label="Semanal (domingo 19:00)" checked={st.digests.weekly} onChange={(v) => save({ digests: { weekly: v } })} />
+      <Switch label="Mensual (día 1, 08:00)" checked={st.digests.monthly} onChange={(v) => save({ digests: { monthly: v } })} />
+      <p className="hint">Hora de tu zona horaria. También puedes verlos cuando quieras en Informes → Resúmenes.</p>
+    </section>
+  );
+}
+
 function FxRates({ me }: { me: any }) {
   const { data: rates } = useApi<any[]>('/api/fx');
   const { data: accounts } = useApi<any[]>('/api/accounts');
@@ -115,9 +160,10 @@ export function Profile({ me }: { me: any }) {
           <Switch label="Movimientos inusuales (para revisar)" checked={al.unusual} onChange={(v) => setAl({ ...al, unusual: v })} />
           <Field id="pg" label="Avisarme de gastos mayores a" hint="Vacío = desactivado"><input id="pg" className="input" inputMode="decimal" value={al.limit} onChange={(e) => setAl({ ...al, limit: e.target.value })} /></Field>
           <button className="btn primary" disabled={busy} onClick={saveAlerts}>Guardar alertas</button>
-          <p className="hint">Cada hecho avisa una sola vez. Hoy las alertas aparecen dentro de la app; las notificaciones push requieren una fase posterior.</p>
+          <p className="hint">Cada hecho avisa una sola vez. Para recibirlas en el teléfono activa las notificaciones más abajo.</p>
         </section>
       </div>
+      <PushCard />
       <FxRates me={me} />
       <section className="card"><h2>Mis datos</h2>
         <p className="small muted" style={{ marginTop: 0 }}>Puedes llevarte todo en cualquier momento y restaurarlo después.</p>
@@ -145,7 +191,7 @@ export function Profile({ me }: { me: any }) {
             <li>Contraseña con scrypt; sesión en cookie HttpOnly (el token se guarda con hash).</li><li>Cada consulta se filtra por tu usuario en el servidor; hay pruebas automáticas de aislamiento.</li>
             <li>Validación de entradas, protección CSRF, límite de intentos de acceso y cabeceras de seguridad (CSP).</li><li>Los saldos se calculan desde los movimientos; nada se borra en silencio y todo cambio queda auditado.</li>
             <li>Tokens de Google cifrados en reposo (AES-256-GCM) y solo en el servidor. No guardamos claves bancarias.</li><li>Los registros técnicos no incluyen importes, comercios ni cuerpos de solicitud.</li>
-            <li>Verificación en dos pasos (TOTP) opcional con códigos de recuperación; límite de intentos persistente en la base de datos.</li><li><b>Pendiente:</b> passkeys, cifrado de la base de datos en disco y notificaciones push. HTTPS depende de cómo despliegues el servidor.</li>
+            <li>Verificación en dos pasos (TOTP) opcional con códigos de recuperación; límite de intentos persistente en la base de datos.</li><li><b>Pendiente:</b> passkeys y cifrado de la base de datos en disco. HTTPS depende de cómo despliegues el servidor.</li>
           </ul></section>
       </div>
       {sheet && <DataSheet kind={sheet} onClose={() => setSheet(null)} />}

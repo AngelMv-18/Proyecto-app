@@ -19,6 +19,12 @@ export const config = {
     clientId: env.GOOGLE_CLIENT_ID ?? '',
     clientSecret: env.GOOGLE_CLIENT_SECRET ?? '',
   },
+  push: {
+    publicKey: env.VAPID_PUBLIC_KEY ?? '',
+    privateKey: env.VAPID_PRIVATE_KEY ?? '',
+    subject: env.VAPID_SUBJECT ?? 'mailto:admin@localhost',
+  },
+  scheduler: env.SCHEDULER !== 'off',
   ai: {
     apiKey: env.ANTHROPIC_API_KEY ?? '',
     model: env.NOVA_AI_MODEL ?? 'claude-sonnet-5-5',
@@ -35,3 +41,5 @@ export function googleMissing(): string[] {
   if (!config.encryptionKey) m.push('APP_ENCRYPTION_KEY');
   return m;
 }
+
+export const pushConfigured = () => Boolean(config.push.publicKey && config.push.privateKey);

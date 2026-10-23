@@ -26,9 +26,21 @@ Hecho:
 Archivos: `server/migrations/002_2fa_fx.sql`, `server/src/services/totp.ts`, `server/src/security.ts`, `server/src/routes/{auth,finance,integrations,data}.ts`, `server/src/services/{stats,insights,reports}.ts`, `server/test/phase8.test.ts`, `web/src/{App.tsx,styles.css}`, `web/src/screens/{Profile,Home}.tsx`, `web/e2e/app.spec.ts`.
 Cómo probar: `npm test` (52 pruebas) y `npm run test:e2e`. En la app: Perfil → Seguridad → Verificación en dos pasos.
 
+## Fase 9 — Resúmenes periódicos y notificaciones push
+Hecho:
+- **Resúmenes diario, semanal y mensual** calculados con movimientos confirmados: ingresos, gastos, neto, comparación con el período anterior, categoría principal, gastos más grandes, presupuestos al límite, pagos de los próximos 7 días y aviso de movimientos sin revisar (`services/digest.ts`, `GET /api/digests/:period`, Informes → Resúmenes, con navegación a períodos anteriores).
+- **Programador en el servidor** cada 10 min: refresca alertas de todos los usuarios y genera los resúmenes según la hora local (diario 20:00, semanal domingo 19:00, mensual día 1 08:00, configurables). Usa un candado de PostgreSQL para que solo una réplica lo ejecute, y cada resumen se crea una sola vez (`services/scheduler.ts`).
+- **Notificaciones push Web Push (VAPID)**: suscripción por dispositivo, prueba, **modo privado por defecto** (la pantalla de bloqueo no muestra importes ni comercios), umbral de severidad, borrado automático de suscripciones caducadas; el service worker muestra la notificación y abre la pantalla correcta (`services/push.ts`, `routes/notify.ts`, `public/sw.js`, Perfil → Notificaciones y resúmenes).
+- Si faltan las claves VAPID la app lo dice y sigue mostrando alertas y resúmenes dentro de la app.
+Archivos: `server/migrations/003_push_digests.sql`, `server/src/services/{digest,push,scheduler}.ts`, `server/src/routes/notify.ts`, `server/src/{config,index,app}.ts`, `server/test/phase9.test.ts`, `web/public/sw.js`, `web/src/screens/{Profile,Reports}.tsx`, `web/e2e/app.spec.ts`.
+Cómo probar: `npm test` (57 pruebas). Para push real: `npx web-push generate-vapid-keys`, define `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`, sirve la app por **HTTPS**, instálala en Chrome Android y pulsa “Activar en este dispositivo” → “Probar”.
+Limitación: el envío push real pasa por el servicio de Google (FCM) para Chrome Android; no se pudo probar extremo a extremo desde este entorno (se probó con un emisor simulado). iOS solo lo admite con la app instalada en la pantalla de inicio (iOS 16.4+).
+Coste: gratis (Web Push no cobra por mensaje).
+
 ## Lo que falta
 - Probar Gmail con credenciales reales y ajustar el parser a los correos/SMS reales de tus bancos.
-- Passkeys, notificaciones push, cifrado de disco.
+- Passkeys y cifrado de disco.
+- Probar el envío push real en un teléfono (requiere HTTPS y claves VAPID).
 - App Android nativa (opcional) para leer notificaciones sin automatizadores.
 - Tipos de cambio automáticos (hoy son manuales) y conversión de ingresos/gastos en otra moneda.
 - Intereses de deudas calculados automáticamente (hoy informativos).

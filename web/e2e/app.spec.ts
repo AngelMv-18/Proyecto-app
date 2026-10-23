@@ -70,7 +70,7 @@ test('Gmail no configurado se informa con honestidad y no finge estar conectado'
   await register(page);
   await page.goto('/#/integraciones');
   await expect(page.getByText('No configurado')).toBeVisible();
-  await expect(page.getByText('GOOGLE_CLIENT_ID')).toBeVisible();
+  await expect(page.getByText('GOOGLE_CLIENT_ID', { exact: true })).toBeVisible();
   await expect(page.getByText('Sin API pública')).toBeVisible();
   await expect(page.getByRole('button', { name: /Conectar con Google/ })).toHaveCount(0);
 });
@@ -83,7 +83,7 @@ test('la app sirve sin conectar nada: transferencia no cambia el total y NOVA AI
   await page.getByRole('tab', { name: '¿Me conviene comprarlo?' }).click();
   await page.fill('#pi', 'Teléfono'); await page.fill('#pp', '3000');
   await page.getByRole('button', { name: 'Evaluar compra' }).click();
-  await expect(page.getByText(/Evaluación orientativa/)).toBeVisible();
+  await expect(page.getByText(/Evaluación orientativa ·/)).toBeVisible();
   await expect(page.getByText(/La decisión es tuya/)).toBeVisible();
 });
 
@@ -141,4 +141,13 @@ test('2FA: tras activarla, el acceso pide el código de la app de autenticación
   await page.fill('#otp', totpAt(setup.secret, currentStep() + 1));
   await page.getByRole('button', { name: 'Verificar' }).click();
   await expect(page.getByText('Empecemos por tus cuentas')).toBeVisible();
+});
+
+test('resúmenes: el resumen semanal se ve en Informes y push informa si no está configurado', async ({ page }) => {
+  await register(page); await createCash(page);
+  await page.goto('/#/informes?vista=resumenes');
+  await expect(page.getByRole('heading', { name: 'Resumen de la semana' })).toBeVisible();
+  await expect(page.getByText('Sin movimientos confirmados en este período.')).toBeVisible();
+  await page.goto('/#/perfil');
+  await expect(page.getByText(/no tiene claves VAPID/)).toBeVisible();
 });

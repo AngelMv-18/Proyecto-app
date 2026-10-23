@@ -159,11 +159,13 @@ export async function authRoutes(app: FastifyInstance) {
           goals: z.boolean(), review: z.boolean(), duplicates: z.boolean(), reconciliation: z.boolean(), unusual: z.boolean(),
         }).partial().optional(),
         ingest_account_id: z.string().uuid().nullable().optional(),
+        push: z.object({ enabled: z.boolean(), private: z.boolean(), min_severity: z.enum(['info', 'warning', 'critical']) }).partial().optional(),
+        digests: z.object({ daily: z.boolean(), weekly: z.boolean(), monthly: z.boolean() }).partial().optional(),
       }).optional(),
     }), req.body);
     if (b.timezone) { try { new Intl.DateTimeFormat('en', { timeZone: b.timezone }); } catch { throw badRequest('Zona horaria no válida'); } }
     const cur = await one(pool, 'SELECT * FROM users WHERE id=$1', [uid(req)]);
-    const settings = { ...cur.settings, ...(b.settings ?? {}), alerts: { ...(cur.settings?.alerts ?? {}), ...(b.settings?.alerts ?? {}) } };
+    const settings = { ...cur.settings, ...(b.settings ?? {}), alerts: { ...(cur.settings?.alerts ?? {}), ...(b.settings?.alerts ?? {}) }, push: { ...(cur.settings?.push ?? {}), ...(b.settings?.push ?? {}) }, digests: { ...(cur.settings?.digests ?? {}), ...(b.settings?.digests ?? {}) } };
     if (b.currency && b.currency !== cur.currency) {
       const used = await one(pool, 'SELECT 1 FROM transactions WHERE user_id=$1 LIMIT 1', [uid(req)]);
       if (used) throw badRequest('Cambiar la moneda principal con movimientos registrados no está soportado: crea cuentas en la otra moneda en su lugar', 'currency_locked');
