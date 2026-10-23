@@ -232,6 +232,10 @@ test('compartir: el administrador crea un enlace y un invitado se registra con �
   await page.getByRole('button', { name: 'Crear enlace' }).click();
   const link = (await page.locator('code').first().textContent())!.trim();
   expect(link).toMatch(/\/#\/invitacion\//);
+  // El administrador abre su propio enlace: se explica por qué ve su cuenta y no se gasta la invitación.
+  await page.goto(link.replace(/^https?:\/\/[^/]+/, 'http://localhost:3100'));
+  await expect(page.getByRole('heading', { name: 'Este es un enlace de invitación' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cerrar sesión y usar la invitación' })).toBeVisible();
   // El invitado abre el enlace en otro navegador (sin sesión).
   const guest = await browser.newContext();
   const g = await guest.newPage();

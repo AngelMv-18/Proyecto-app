@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ApiError, api } from './api';
 import { setFmt } from './format';
 import { Icon, Logo } from './icons';
-import { ConfirmHost, Field, LoadingBlock, Sheet, Toasts, nav, toastError, useApi, useRoute } from './ui';
+import { ConfirmHost, Field, LoadingBlock, Sheet, Toasts, nav, toast, toastError, useApi, useRoute } from './ui';
 import { TxForm } from './components/TxForm';
 import { Home } from './screens/Home';
 import { Transactions } from './screens/Transactions';
@@ -125,6 +125,23 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** Enlace de invitación abierto con una sesión ya iniciada (normalmente, el propio administrador probando su enlace). */
+function InviteWhileLoggedIn({ me }: { me: any }) {
+  const link = location.href;
+  return (
+    <section className="card" style={{ maxWidth: 520, margin: '0 auto' }}>
+      <h2>Este es un enlace de invitación</h2>
+      <p className="small muted">Ya tienes una sesión iniciada como <b>{me.display_name}</b> ({me.email}), por eso ves tu cuenta. La persona que lo abra en <b>su propio teléfono</b> verá la pantalla para crear su cuenta. Abrirlo no gasta la invitación: solo se descuenta al crear una cuenta.</p>
+      <div className="row wrap">
+        <button className="btn primary" onClick={async () => { await api.post('/api/auth/logout').catch(() => {}); location.reload(); }}>Cerrar sesión y usar la invitación</button>
+        <button className="btn" onClick={() => navigator.clipboard?.writeText(link).then(() => toast('Enlace copiado', 'ok')).catch(() => toast('No se pudo copiar', 'error'))}>Copiar enlace</button>
+        <button className="btn ghost" onClick={() => nav('/')}>Ir a mi inicio</button>
+      </div>
+      <p className="hint">Para probarlo tú sin cerrar sesión, ábrelo en una pestaña de incógnito.</p>
+    </section>
+  );
+}
+
 function Shell({ me }: { me: any }) {
   const { path } = useRoute();
   const tx = useSyncExternalStore((f) => { txSubs.add(f); return () => txSubs.delete(f); }, () => txState);
@@ -161,7 +178,7 @@ function Shell({ me }: { me: any }) {
     case '/revision': screen = <Review />; break;
     case '/apariencia': screen = <Appearance />; break;
     case '/compartir': screen = <Share />; break;
-    case '/invitacion': screen = <div className="empty"><h3>Ya tienes una sesión iniciada</h3><p>Para usar la invitación, cierra sesión primero o compártela con otra persona.</p><button className="btn" onClick={() => nav('/')}>Ir al inicio</button></div>; break;
+    case '/invitacion': screen = <InviteWhileLoggedIn me={me} />; break;
     default: screen = <div className="empty"><h3>Pantalla no encontrada</h3><button className="btn" onClick={() => nav('/')}>Ir al inicio</button></div>;
   }
   const NavLink = ({ it }: { it: (typeof MAIN)[number] }) => (
