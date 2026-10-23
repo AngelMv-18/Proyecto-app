@@ -128,3 +128,27 @@ describe('datos: exportación, restauración y borrado', () => {
     expect((await u.ok(u.get('/api/accounts'))).length).toBe(0);
   });
 });
+
+describe('despliegue', () => {
+  it('con REGISTRATION_CODE, crear usuario exige el código de instalación', async () => {
+    const { config } = await import('../src/config.js');
+    const app = await getApp();
+    (config as any).registrationCode = 'codigo-secreto-123';
+    try {
+      const st = (await app.inject({ method: 'GET', url: '/api/auth/status' })).json();
+      expect(st.requires_code).toBe(true);
+      const reg = (code?: string) => app.inject({ method: 'POST', url: '/api/auth/register', headers: { 'x-requested-with': 'nova' }, payload: { email: `code${Date.now()}${Math.random()}@test.local`, password: 'clave-segura-123', display_name: 'X', code } });
+      expect((await reg()).statusCode).toBe(403);
+      expect((await reg('otro')).json().error.code).toBe('bad_registration_code');
+      expect((await reg('codigo-secreto-123')).statusCode).toBe(200);
+    } finally { (config as any).registrationCode = ''; }
+  });
+
+  it('TLS hacia Supabase: verifica el certificado con la CA raíz incluida; sin TLS en local', async () => {
+    const { sslFor } = await import('../src/db-ssl.js');
+    const s = sslFor('postgres://u:p@aws-1-us-east-2.pooler.supabase.com:5432/postgres') as any;
+    expect(s.rejectUnauthorized).toBe(true);
+    expect(s.ca.some((c: string) => c.includes('MIIDxDCCAqygAwIBAgIUbLxMod62P2ktCiAkxnKJwtE9VPYw'))).toBe(true);
+    expect(sslFor('postgres://nova:nova@localhost:5432/x')).toBeUndefined();
+  });
+});

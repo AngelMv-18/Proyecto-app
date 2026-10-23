@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { config } from './config.js';
+import { sslFor } from './db-ssl.js';
 
 // BIGINT -> number: los importes en centavos caben de sobra en 2^53.
 pg.types.setTypeParser(20, (v) => Number(v));
@@ -7,7 +8,7 @@ pg.types.setTypeParser(1700, (v) => Number(v));
 // DATE -> 'YYYY-MM-DD' sin conversión de zona horaria.
 pg.types.setTypeParser(1082, (v) => v);
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
+export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: Number(process.env.DATABASE_POOL_MAX ?? 10), ssl: sslFor(config.databaseUrl) });
 export type Db = pg.PoolClient | pg.Pool;
 
 export async function withTx<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {

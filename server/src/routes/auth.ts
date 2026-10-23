@@ -25,11 +25,16 @@ const publicUser = (u: any) => ({ id: u.id, email: u.email, display_name: u.disp
 export async function authRoutes(app: FastifyInstance) {
   app.get('/api/auth/status', async () => {
     const n = (await one<{ n: number }>(pool, 'SELECT count(*)::int n FROM users'))!.n;
-    return { has_users: n > 0, registration_open: n === 0 || config.allowRegistration };
+    return { has_users: n > 0, registration_open: n === 0 || config.allowRegistration, requires_code: Boolean(config.registrationCode) };
   });
 
   app.post('/api/auth/register', async (req, reply) => {
-    const b = parse(z.object({ email: z.string().email().toLowerCase(), password: pwd, display_name: z.string().trim().min(1).max(80), currency: z.string().length(3).toUpperCase().default('HNL') }), req.body);
+    const b = parse(z.object({ email: z.string().email().toLowerCase(), password: pwd, display_name: z.string().trim().min(1).max(80), currency: z.string().length(3).toUpperCase().default('HNL'), code: z.string().max(200).optional() }), req.body);
+    if (config.registrationCode) {
+      const { timingSafeEqual } = await import('node:crypto');
+      const a = Buffer.from(sha256(b.code ?? '')), e = Buffer.from(sha256(config.registrationCode));
+      if (!timingSafeEqual(a, e)) throw new AppError(403, 'bad_registration_code', 'Código de instalación incorrecto');
+    }
     const n = (await one<{ n: number }>(pool, 'SELECT count(*)::int n FROM users'))!.n;
     if (n > 0 && !config.allowRegistration) throw new AppError(403, 'registration_closed', 'El registro está cerrado en esta instalación');
     const hash = await hashPassword(b.password);

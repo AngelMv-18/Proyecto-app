@@ -16,6 +16,7 @@ COPY web/package.json web/
 RUN npm ci --omit=dev -w server && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/server/migrations server/migrations
+COPY --from=build /app/server/certs server/certs
 COPY --from=build /app/web/dist web/dist
 USER node
 EXPOSE 3000

@@ -38,16 +38,16 @@ const MORE = [
 ];
 
 function AuthScreen({ onDone }: { onDone: () => void }) {
-  const { data: st, loading } = useApi<{ has_users: boolean; registration_open: boolean }>('/api/auth/status');
+  const { data: st, loading } = useApi<{ has_users: boolean; registration_open: boolean; requires_code?: boolean }>('/api/auth/status');
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [name, setName] = useState('');
+  const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [name, setName] = useState(''); const [regCode, setRegCode] = useState('');
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const [ticket, setTicket] = useState<string | null>(null); const [code, setCode] = useState('');
   useEffect(() => { if (st && !st.has_users) setMode('register'); }, [st]);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
     try {
-      if (mode === 'register') await api.post('/api/auth/register', { email, password: pw, display_name: name || 'Yo' });
+      if (mode === 'register') await api.post('/api/auth/register', { email, password: pw, display_name: name || 'Yo', ...(st?.requires_code ? { code: regCode } : {}) });
       else if (ticket) await api.post('/api/auth/login/2fa', { ticket, code });
       else {
         const r = await api.post('/api/auth/login', { email, password: pw });
@@ -75,6 +75,7 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
             {mode === 'register' && <Field id="name" label="Tu nombre"><input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required /></Field>}
             <Field id="email" label="Correo electrónico"><input id="email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></Field>
             <Field id="pw" label="Contraseña" hint={mode === 'register' ? 'Mínimo 10 caracteres. Usa una frase larga.' : undefined}><input id="pw" type="password" className="input" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 10 : 1} required /></Field>
+            {mode === 'register' && st?.requires_code && <Field id="regcode" label="Código de instalación" hint="Lo definiste al desplegar (REGISTRATION_CODE). Impide que otra persona cree la cuenta antes que tú."><input id="regcode" className="input" value={regCode} onChange={(e) => setRegCode(e.target.value)} autoComplete="off" required /></Field>}
             {err && <p className="err" role="alert">{err}</p>}
             <button className="btn primary block" disabled={busy}>{busy ? 'Un momento…' : mode === 'login' ? 'Entrar' : 'Crear cuenta'}</button>
             {st?.has_users && st.registration_open && <button type="button" className="btn ghost block" style={{ marginTop: 8 }} onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Crear una cuenta nueva' : 'Ya tengo cuenta'}</button>}

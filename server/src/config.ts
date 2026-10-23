@@ -11,7 +11,10 @@ export const config = {
   databaseUrl: env.DATABASE_URL ?? 'postgres://nova:nova@localhost:5432/nova_dev',
   allowRegistration: env.ALLOW_REGISTRATION === 'true',
   allowedOrigins: (env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-  publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 3000}`,
+  // En Render la URL pública llega en RENDER_EXTERNAL_URL.
+  publicUrl: env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || `http://localhost:${env.PORT ?? 3000}`,
+  // Si se define, crear el PRIMER usuario exige este código (evita que un tercero se adelante tras el despliegue).
+  registrationCode: env.REGISTRATION_CODE ?? '',
   sessionDays: Number(env.SESSION_DAYS ?? 14),
   // Clave de 32 bytes derivada del secreto; solo se usa para cifrar tokens OAuth en reposo.
   encryptionKey: env.APP_ENCRYPTION_KEY ? createHash('sha256').update(env.APP_ENCRYPTION_KEY).digest() : null,

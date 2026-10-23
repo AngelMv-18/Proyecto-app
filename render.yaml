@@ -1,0 +1,33 @@
+# Despliegue gratuito en Render (plan free) con la base de datos en Supabase.
+# Render → New → Blueprint → este repositorio (rama claude/nova-finance-personal-9ihdwm) → completa los valores marcados.
+services:
+  - type: web
+    name: nova-finance
+    runtime: docker
+    plan: free
+    branch: claude/nova-finance-personal-9ihdwm
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Conexión a Supabase con el rol dedicado nova_app (pooler en modo sesión, IPv4). Se pega al crear el Blueprint.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_MAX
+        value: "5"
+      # Clave para cifrar tokens OAuth y secretos 2FA: Render la genera y nunca sale de su panel.
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
+      # Código para crear el primer usuario (evita que alguien se adelante). Se pega al crear el Blueprint.
+      - key: REGISTRATION_CODE
+        sync: false
+      - key: ALLOW_REGISTRATION
+        value: "false"
+      # Notificaciones push (la pública no es secreta; la privada se pega al crear el Blueprint).
+      - key: VAPID_PUBLIC_KEY
+        value: BKnlVaDWbySFGbgXV3Qd_hmJC2W8GxjFIt8Nswf7unkij4k8HJCFWemdsUBYOK5vuAeyDJbi-ZEN5XMDCSZ1hYc
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: https://github.com/AngelMv-18/Proyecto-app
