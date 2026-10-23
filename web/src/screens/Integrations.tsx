@@ -45,7 +45,8 @@ function NotifCard({ n, accounts }: { n: any; accounts: any[] }) {
   return (
     <section className="card"><div className="row between"><h2 style={{ margin: 0 }}>Notificaciones y SMS del banco</h2><Status ok={n.status === 'token_activo' ? true : false} label={n.status === 'token_activo' ? 'Token activo' : 'Sin configurar'} /></div>
       <p className="small muted">{n.note}</p>
-      <p className="small muted">Solo funciona con apps de automatización que <b>tú</b> instales y autorices en tu teléfono; NOVA nunca lee notificaciones por su cuenta. Las rechazadas, canceladas y los códigos de seguridad se descartan; las demás llegan a “Revisión”.</p>
+      <p className="small"><b>Recomendado en Android:</b> instala <b>NOVA Captura</b> (app complementaria del proyecto, carpeta <code>android/</code>; el APK lo genera GitHub Actions). Pega allí la dirección de este servidor y el token. Lee solo las apps y remitentes de SMS que marques, descarta códigos de seguridad en el propio teléfono y guarda los avisos si no hay internet.</p>
+      <p className="small muted">Alternativa: apps de automatización que <b>tú</b> instales y autorices (Tasker, MacroDroid). NOVA nunca lee notificaciones por su cuenta. Las rechazadas, canceladas y los códigos de seguridad se descartan; las demás llegan a “Revisión”.</p>
       <Field id="na" label="Cuenta donde registrar"><select id="na" className="input" value={acc} onChange={(e) => setAcc(e.target.value)}>{accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
       <div className="row wrap">
         <button className="btn primary" disabled={busy || !acc} onClick={async () => { const r = await run(() => api.post('/api/integrations/ingest-token', { account_id: acc })); if (r) setTok(r.token); }}>{n.status === 'token_activo' ? 'Regenerar token' : 'Generar token'}</button>

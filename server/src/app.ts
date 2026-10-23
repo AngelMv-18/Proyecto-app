@@ -19,7 +19,7 @@ import { dataRoutes } from './routes/data.js';
 import { notifyRoutes } from './routes/notify.js';
 
 // Rutas que no requieren sesión de cookie.
-const PUBLIC = new Set(['/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/auth/login/2fa', '/api/integrations/gmail/callback', '/api/ingest/notification']);
+const PUBLIC = new Set(['/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/auth/login/2fa', '/api/integrations/gmail/callback', '/api/ingest/notification', '/api/ingest/ping']);
 
 export async function buildApp() {
   const app = Fastify({
@@ -47,7 +47,7 @@ export async function buildApp() {
     reply.header('cache-control', 'no-store');
     if (!path.startsWith('/api/')) return;
     // CSRF: las mutaciones exigen cabecera personalizada (no enviable por formularios cross-site) y origen coherente.
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && path !== '/api/ingest/notification') {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !path.startsWith('/api/ingest/')) {
       if (req.headers['x-requested-with'] !== 'nova') throw new AppError(403, 'csrf', 'Solicitud rechazada (falta cabecera de seguridad)');
       const origin = req.headers.origin;
       if (origin) {

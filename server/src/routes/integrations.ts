@@ -26,7 +26,7 @@ export async function integrationRoutes(app: FastifyInstance) {
         status: u.ingest_token_hash ? 'token_activo' : 'sin_token',
         endpoint: `${config.publicUrl}/api/ingest/notification`,
         ingest_account_id: u.settings?.ingest_account_id ?? null,
-        note: 'Una PWA no puede leer notificaciones de otras apps. Opciones reales: una app de automatización en tu Android (p. ej. Tasker/MacroDroid, con tu permiso explícito de acceso a notificaciones) que envíe el texto a este endpoint, o una app Android nativa propia con NotificationListenerService (fase posterior).',
+        note: 'Una PWA no puede leer notificaciones de otras apps. En Android usa la app complementaria NOVA Captura (acceso a notificaciones y, opcionalmente, SMS, siempre con tu permiso explícito) o una app de automatización como Tasker/MacroDroid que envíe el texto a este endpoint.',
       },
       files: { status: 'disponible', formats: ['CSV', 'OFX/QFX'] },
       bank_api: { status: 'no_disponible', reason: 'No hay una API bancaria pública verificada para los bancos de Honduras ni agregadores con cobertura confirmada. Se habilitará si algún banco o proveedor lo ofrece.' },
@@ -74,18 +74,34 @@ export async function integrationRoutes(app: FastifyInstance) {
   });
   app.delete('/api/integrations/ingest-token', async (req) => { await pool.query('UPDATE users SET ingest_token_hash=NULL WHERE id=$1', [uid(req)]); await audit(pool, uid(req), 'integration', 'ingest', 'token_revoked'); return { ok: true }; });
 
-  // Endpoint para automatizaciones: autentica con el token de ingesta, no con cookie.
-  app.post('/api/ingest/notification', async (req) => {
+  // Endpoints para la app Android y automatizaciones: autentican con el token de ingesta, no con cookie.
+  async function ingestUser(req: any) {
     const h = String(req.headers.authorization ?? '');
     if (!h.startsWith('Bearer nova_ing_')) throw new AppError(401, 'unauthorized', 'Token de ingesta requerido');
     const u = await one(pool, 'SELECT id, settings FROM users WHERE ingest_token_hash=$1', [sha256(h.slice(7))]);
     if (!u) throw new AppError(401, 'unauthorized', 'Token de ingesta inválido');
+    return u;
+  }
+  // Comprobación de conexión desde la app: no registra nada.
+  app.post('/api/ingest/ping', async (req) => {
+    const u = await ingestUser(req);
     await rateLimit(pool, `ingest:${u.id}`, 60, 60);
-    const b = parse(z.object({ text: z.string().min(3).max(2000), title: z.string().max(200).optional(), app: z.string().max(80).optional(), posted_at: z.string().datetime({ offset: true }).optional(), account_id: uuid.optional() }), req.body);
+    const acc = u.settings?.ingest_account_id ? await one(pool, 'SELECT name, currency FROM accounts WHERE id=$1 AND user_id=$2', [u.settings.ingest_account_id, u.id]) : null;
+    return { ok: true, account: acc ? { name: acc.name, currency: acc.currency } : null, note: acc ? undefined : 'Configura la cuenta destino en NOVA → Integraciones' };
+  });
+  app.post('/api/ingest/notification', async (req) => {
+    const u = await ingestUser(req);
+    await rateLimit(pool, `ingest:${u.id}`, 60, 60);
+    const b = parse(z.object({
+      text: z.string().min(3).max(2000), title: z.string().max(200).optional(), app: z.string().max(80).optional(), posted_at: z.string().datetime({ offset: true }).optional(), account_id: uuid.optional(),
+      // Identificador estable del aviso en el teléfono: si la app reintenta, no se duplica.
+      source_id: z.string().regex(/^[A-Za-z0-9_-]{6,64}$/).optional(), channel: z.enum(['notification', 'sms']).optional(),
+    }), req.body);
     const accId = b.account_id ?? u.settings?.ingest_account_id;
     if (!accId) throw badRequest('Configura una cuenta predeterminada para la ingesta', 'no_default_account');
-    const parsed = parseFinancialMessage({ subject: b.title, body: b.text, receivedAt: b.posted_at });
-    const r = await ingestParsed(pool, u.id, parsed, { account_id: accId, source: 'notification', label: `Notificación${b.app ? `: ${b.app}` : ''}` });
+    const parsed = parseFinancialMessage({ subject: b.title, body: b.text, receivedAt: b.posted_at, id: b.source_id ? `dev:${b.source_id}` : undefined });
+    const label = `${b.channel === 'sms' ? 'SMS' : 'Notificación'}${b.app ? `: ${b.app}` : ''}`;
+    const r = await ingestParsed(pool, u.id, parsed, { account_id: accId, source: 'notification', label });
     try { await refreshAlerts(pool, u.id); } catch { /* best-effort */ }
     return { ...r, parsed: parsed.kind === 'movement' ? { type: parsed.type, amount: parsed.amount, currency: parsed.currency, merchant: parsed.merchant, bank_state: parsed.bank_state, confidence: parsed.confidence } : undefined };
   });

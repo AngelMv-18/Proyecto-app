@@ -123,3 +123,21 @@ describe('detección y duplicados entre fuentes', () => {
     expect(s.status).toBe(412);
   });
 });
+
+describe('ingesta desde la app Android', () => {
+  it('ping valida el token y reintentos con el mismo source_id no duplican; SMS queda etiquetado', async () => {
+    const u = await seededUser();
+    const app = await getApp();
+    const tok = await u.ok(u.post('/api/integrations/ingest-token', { account_id: u.bank.id }));
+    const auth = { authorization: `Bearer ${tok.token}` };
+    const ping = await app.inject({ method: 'POST', url: '/api/ingest/ping', headers: auth, payload: {} });
+    expect(ping.json()).toMatchObject({ ok: true, account: { name: 'Banco', currency: 'HNL' } });
+    expect((await app.inject({ method: 'POST', url: '/api/ingest/ping', headers: { authorization: 'Bearer nova_ing_falso' }, payload: {} })).statusCode).toBe(401);
+    const send = () => app.inject({ method: 'POST', url: '/api/ingest/notification', headers: auth, payload: { text: 'Compra por L 75.00 en TIENDA X', app: 'Banco Y', channel: 'sms', source_id: 'abc123def456' } }).then((r) => r.json());
+    expect((await send()).outcome).toBe('created');
+    expect((await send()).outcome).toBe('duplicate');
+    const list = await u.ok(u.get('/api/transactions'));
+    expect(list.total).toBe(1);
+    expect(list.items[0].source_label).toBe('SMS: Banco Y');
+  });
+});

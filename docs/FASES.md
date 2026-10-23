@@ -37,11 +37,21 @@ Cómo probar: `npm test` (57 pruebas). Para push real: `npx web-push generate-va
 Limitación: el envío push real pasa por el servicio de Google (FCM) para Chrome Android; no se pudo probar extremo a extremo desde este entorno (se probó con un emisor simulado). iOS solo lo admite con la app instalada en la pantalla de inicio (iOS 16.4+).
 Coste: gratis (Web Push no cobra por mensaje).
 
+## Fase 10 — App Android complementaria “NOVA Captura”
+Hecho:
+- App nativa en Kotlin (minSdk 26, targetSdk 35) **sin librerías de terceros**: lectura de notificaciones de apps bancarias elegidas, SMS opcional de remitentes autorizados, filtro local (sin códigos de seguridad, sin textos sin importe, sin repetidos), token cifrado con Android Keystore, cola sin conexión con reintentos (JobScheduler), pantalla de configuración con prueba de conexión y estado.
+- Lógica compartida en `android/core` (Kotlin puro) con 10 pruebas unitarias que **se ejecutan en este entorno**.
+- Servidor: `POST /api/ingest/ping` (probar token desde la app), `source_id` estable para que los reintentos no dupliquen, etiqueta “SMS: …”.
+- CI en GitHub Actions: `android.yml` (pruebas + APK + informe lint) y `ci.yml` (servidor con PostgreSQL + pruebas de interfaz).
+Verificación y límites: el SDK de Android no se puede descargar aquí (la red del entorno bloquea `dl.google.com`), así que el APK **no se compiló en este entorno**; las fuentes de la app sí compilan contra las clases del framework Android API 35 (`android/tools/compile-check`). El APK se genera en GitHub Actions. **No se ha probado en un teléfono real.**
+Archivos: `android/**`, `.github/workflows/{android,ci}.yml`, `server/src/{app.ts,routes/integrations.ts}`, `server/test/integrations.test.ts`, `web/src/screens/Integrations.tsx`, `web/playwright.config.ts`, `docs/INTEGRACIONES.md`.
+Cómo probar: descarga el artefacto `nova-captura-apk` de la ejecución de GitHub Actions, instálalo, pega la URL HTTPS de tu servidor y el token (NOVA → Integraciones → Notificaciones y SMS), pulsa “Probar conexión”, concede el acceso a notificaciones y marca la app de tu banco.
+
 ## Lo que falta
 - Probar Gmail con credenciales reales y ajustar el parser a los correos/SMS reales de tus bancos.
 - Passkeys y cifrado de disco.
 - Probar el envío push real en un teléfono (requiere HTTPS y claves VAPID).
-- App Android nativa (opcional) para leer notificaciones sin automatizadores.
+- Probar NOVA Captura en un teléfono real con los avisos de tus bancos y ajustar el parser a sus textos.
 - Tipos de cambio automáticos (hoy son manuales) y conversión de ingresos/gastos en otra moneda.
 - Intereses de deudas calculados automáticamente (hoy informativos).
 - Revisión visual en dispositivos reales Android/iOS.

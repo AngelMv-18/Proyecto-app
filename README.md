@@ -28,9 +28,14 @@ El primer usuario se crea desde la pantalla de acceso; después el registro se c
 ## Pruebas
 
 ```bash
-npm test            # 57 pruebas de servidor (PostgreSQL real, base nova_test; usa TEST_DATABASE_URL para cambiarla)
+npm test            # 58 pruebas de servidor (PostgreSQL real, base nova_test; usa TEST_DATABASE_URL para cambiarla)
 npm run test:e2e    # pruebas de interfaz con Playwright (móvil + escritorio; base nova_e2e)
 ```
+
+## App Android complementaria (opcional)
+
+`android/` contiene **NOVA Captura**, que envía a tu servidor los avisos de compras de tus apps bancarias y SMS (siempre con tu permiso y quedando *por revisar*).
+El APK se genera en GitHub Actions (artefacto `nova-captura-apk`). Pruebas de la lógica: `cd android && gradle :core:test`.
 
 ## Despliegue
 

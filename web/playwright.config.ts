@@ -1,11 +1,14 @@
+import { existsSync } from 'node:fs';
 import { defineConfig } from '@playwright/test';
 
-const exe = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// Usa el Chromium preinstalado si existe; si no (p. ej. en CI), el que instala Playwright.
+const local = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const exe = process.env.CHROMIUM_PATH || (existsSync(local) ? local : undefined);
 export default defineConfig({
   testDir: 'e2e',
   workers: 1,
   timeout: 45_000,
-  use: { baseURL: 'http://localhost:3100', launchOptions: { executablePath: exe }, locale: 'es-HN', timezoneId: 'America/Tegucigalpa' },
+  use: { baseURL: 'http://localhost:3100', launchOptions: exe ? { executablePath: exe } : {}, locale: 'es-HN', timezoneId: 'America/Tegucigalpa' },
   webServer: {
     command: 'node web/e2e/reset-db.mjs && npm -w server run start',
     cwd: '..',
