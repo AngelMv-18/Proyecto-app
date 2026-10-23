@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+*.log
+web/test-results
+web/playwright-report
+backups/

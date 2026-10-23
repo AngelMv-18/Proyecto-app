@@ -1,0 +1,37 @@
+import { createHash } from 'node:crypto';
+
+const env = process.env;
+const isProd = env.NODE_ENV === 'production';
+
+export const config = {
+  isProd,
+  isTest: env.NODE_ENV === 'test',
+  port: Number(env.PORT ?? 3000),
+  host: env.HOST ?? '0.0.0.0',
+  databaseUrl: env.DATABASE_URL ?? 'postgres://nova:nova@localhost:5432/nova_dev',
+  allowRegistration: env.ALLOW_REGISTRATION === 'true',
+  allowedOrigins: (env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 3000}`,
+  sessionDays: Number(env.SESSION_DAYS ?? 14),
+  // Clave de 32 bytes derivada del secreto; solo se usa para cifrar tokens OAuth en reposo.
+  encryptionKey: env.APP_ENCRYPTION_KEY ? createHash('sha256').update(env.APP_ENCRYPTION_KEY).digest() : null,
+  google: {
+    clientId: env.GOOGLE_CLIENT_ID ?? '',
+    clientSecret: env.GOOGLE_CLIENT_SECRET ?? '',
+  },
+  ai: {
+    apiKey: env.ANTHROPIC_API_KEY ?? '',
+    model: env.NOVA_AI_MODEL ?? 'claude-sonnet-5-5',
+  },
+};
+
+export function googleConfigured() {
+  return Boolean(config.google.clientId && config.google.clientSecret && config.encryptionKey);
+}
+export function googleMissing(): string[] {
+  const m: string[] = [];
+  if (!config.google.clientId) m.push('GOOGLE_CLIENT_ID');
+  if (!config.google.clientSecret) m.push('GOOGLE_CLIENT_SECRET');
+  if (!config.encryptionKey) m.push('APP_ENCRYPTION_KEY');
+  return m;
+}
