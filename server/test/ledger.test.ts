@@ -190,3 +190,34 @@ describe('deudas y validaciones', () => {
     expect((await u.ok(u.get('/api/dashboard'))).month.expense).toBe(0); // un ajuste no es gasto
   });
 });
+
+describe('apariencia de tarjeta y detalle por cuenta', () => {
+  it('guarda banco, red y últimos 4; rechaza números completos', async () => {
+    const u = await seededUser();
+    const a = await u.ok(u.post('/api/accounts', { name: 'BAC Débito', type: 'debit_card', bank_code: 'bac', card_network: 'visa', last4: '1824', opening_date: '2020-01-01' }));
+    expect(a).toMatchObject({ bank_code: 'bac', card_network: 'visa', last4: '1824' });
+    expect((await u.post('/api/accounts', { name: 'X', type: 'debit_card', last4: '4111111111111111' })).status).toBe(400);
+    expect((await u.post('/api/accounts', { name: 'Y', type: 'debit_card', card_colors: 'red' })).status).toBe(400);
+    const p = await u.ok(u.patch(`/api/accounts/${a.id}`, { card_colors: '#112233,#445566', last4: null }));
+    expect(p).toMatchObject({ bank_code: 'bac', card_colors: '#112233,#445566', last4: null });
+  });
+
+  it('el detalle muestra fondos, pagos agendados con esa tarjeta y lo que queda después', async () => {
+    const u = await seededUser();
+    const soon = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+    await u.ok(u.post('/api/recurring', { name: 'Netflix', amount: L(250), frequency: 'monthly', next_date: soon, account_id: u.card.id }));
+    await u.ok(u.post('/api/recurring', { name: 'Alquiler', amount: L(5000), frequency: 'monthly', next_date: soon, account_id: u.bank.id }));
+    await u.ok(u.post('/api/transactions', { type: 'expense', amount: L(1000), account_id: u.card.id }));
+    const card = await u.ok(u.get(`/api/accounts/${u.card.id}/overview`));
+    expect(card.upcoming.map((o: any) => o.name)).toEqual(['Netflix']);
+    expect(card.upcoming_total).toBe(L(250));
+    expect(card.account.available_credit).toBe(L(19000));
+    expect(card.after_upcoming).toBe(L(19000) - L(250));
+    expect(card.month_spent).toBe(L(1000));
+    expect(card.recent).toHaveLength(1);
+    const bank = await u.ok(u.get(`/api/accounts/${u.bank.id}/overview`));
+    expect(bank.after_upcoming).toBe(L(10000) - L(5000));
+    const other = await seededUser();
+    expect((await other.get(`/api/accounts/${u.card.id}/overview`)).status).toBe(404);
+  });
+});

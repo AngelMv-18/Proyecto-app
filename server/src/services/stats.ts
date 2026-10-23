@@ -66,7 +66,7 @@ export async function accountsWithBalances(db: Db, userId: string) {
             (SELECT row_to_json(r) FROM (SELECT as_of, bank_balance, difference, created_at FROM reconciliations x WHERE x.account_id=a.id ORDER BY created_at DESC LIMIT 1) r) AS last_reconciliation
        FROM accounts a
        LEFT JOIN (SELECT account_id, SUM(delta) s FROM v_effects WHERE user_id=$1 GROUP BY account_id) e ON e.account_id=a.id
-      WHERE a.user_id=$1 ORDER BY a.archived, a.created_at`,
+      WHERE a.user_id=$1 ORDER BY a.archived, a.sort_order, a.created_at`,
     [userId],
   );
   const reserved = await rows<{ account_id: string; s: number }>(db, `SELECT account_id, SUM(amount) s FROM transactions WHERE user_id=$1 AND type='goal_saving' AND to_account_id IS NULL AND status='confirmed' GROUP BY account_id`, [userId]);

@@ -15,6 +15,7 @@ async function register(page: Page) {
 }
 async function createCash(page: Page, balance = '1000') {
   await page.goto('/#/cuentas?nueva=1');
+  await page.getByRole('button', { name: 'Efectivo', exact: true }).click(); // banco/tipo "Efectivo"
   await page.fill('#an', 'Efectivo');
   await page.fill('#ao', balance);
   await page.getByRole('button', { name: 'Guardar' }).click();
@@ -150,4 +151,21 @@ test('resúmenes: el resumen semanal se ve en Informes y push informa si no est�
   await expect(page.getByText('Sin movimientos confirmados en este período.')).toBeVisible();
   await page.goto('/#/perfil');
   await expect(page.getByText(/no tiene claves VAPID/)).toBeVisible();
+});
+
+test('billetera: la tarjeta con banco se ve en la pila y su detalle muestra fondos y pagos agendados', async ({ page }) => {
+  await register(page);
+  await page.goto('/#/cuentas?nueva=1');
+  await page.getByRole('button', { name: 'BAC Credomatic' }).click();
+  await page.getByRole('button', { name: 'Visa', exact: true }).click();
+  await page.fill('#al4', '1824');
+  await page.fill('#ao', '2500');
+  await page.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText('Cuenta creada')).toBeVisible();
+  await page.goto('/#/');
+  await page.getByRole('button', { name: /Abrir billetera/ }).click();
+  await page.getByRole('button', { name: /Ver BAC Credomatic Débito/ }).click();
+  await expect(page.getByText('Pagos agendados · 30 días')).toBeVisible();
+  await expect(page.locator('.wv-info .kpi').first()).toContainText('2,500.00');
+  await expect(page.getByRole('img', { name: /terminada en 1824/ }).first()).toBeVisible();
 });

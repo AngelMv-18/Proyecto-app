@@ -6,6 +6,7 @@ import { ACCOUNT_TYPES, dateShort, money, ymd } from '../format';
 import { Icon, catIcon } from '../icons';
 import { Empty, ErrorBlock, LoadingBlock, Progress, Sheet, invalidate, nav, toastError, useApi } from '../ui';
 import { TxRow } from './Transactions';
+import { WalletStack } from '../components/Wallet';
 
 function CountUp({ value }: { value: number }) {
   const [v, setV] = useState(value);
@@ -74,6 +75,14 @@ export function Home({ me }: { me: any }) {
             <button className="btn primary grow" onClick={() => nav('/ia')}><Icon name="spark" size={18} />NOVA</button>
           </div>
 
+          {d.accounts.length > 0 && (
+            <section aria-label="Mis tarjetas">
+              <div className="row between"><h2>Mis tarjetas</h2><button className="btn sm ghost" onClick={() => nav('/cuentas?nueva=1')}><Icon name="plus" size={16} />Agregar</button></div>
+              <WalletStack accounts={d.accounts} />
+              <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>Toca para desplegar tus tarjetas y ver sus fondos y pagos agendados</p>
+            </section>
+          )}
+
           {d.review_count > 0 && (
             <button className="alert info" style={{ textAlign: 'left', cursor: 'pointer', color: 'inherit', font: 'inherit' }} onClick={() => nav('/revision')}>
               <Icon name="mail" /><div className="grow"><b>{d.review_count} movimiento(s) por revisar</b><div className="small muted">Detectados o importados: no afectan tus saldos hasta que los confirmes.</div></div><Icon name="chevron" />
@@ -134,6 +143,7 @@ export function Home({ me }: { me: any }) {
 
           <section className="card" aria-label="Cuentas">
             <h2>Mis cuentas <button className="btn sm ghost link" onClick={() => nav('/cuentas')}>Gestionar</button></h2>
+
             <div className="list">{d.accounts.map((a: any) => (
               <div className="item" key={a.id} style={{ cursor: 'default' }}><span className="avatar"><Icon name={a.type === 'cash' ? 'coin' : a.type === 'credit_card' || a.type === 'debit_card' ? 'card' : 'wallet'} /></span>
                 <div className="grow"><div className="t">{a.name}</div><div className="s">{ACCOUNT_TYPES[a.type]}{a.type === 'credit_card' && a.available_credit != null ? ` · crédito disponible ${money(a.available_credit, a.currency)}` : ''}</div></div>
