@@ -142,6 +142,7 @@ export function Profile({ me }: { me: any }) {
         <Link to="/cuentas" icon="wallet" label="Cuentas" sub="Efectivo, bancos, tarjetas y conciliación" /><Link to="/metas" icon="target" label="Metas de ahorro" sub="Progreso y planes" /><Link to="/deudas" icon="scale" label="Deudas y préstamos" sub="Lo que debo y me deben" />
         <Link to="/recurrentes" icon="repeat" label="Pagos recurrentes" sub="Suscripciones, facturas y servicios" /><Link to="/informes" icon="chart" label="Informes" sub="Estados, flujo de caja y exportación" /><Link to="/integraciones" icon="plug" label="Integraciones" sub="Correo, notificaciones y extractos" /><Link to="/revision" icon="check" label="Revisión de movimientos" sub="Detectados e importados" />
         <Link to="/apariencia" icon="spark" label="Apariencia y bloqueo con huella" sub="Colores, nombre, logotipo y desbloqueo biométrico" />
+        <Link to="/compartir" icon="send" label="Compartir app" sub="Invita a amigos y familiares a probarla" />
       </div></section>
       <div className="grid cols-2">
         <section className="card"><h2>Formato y región</h2>
@@ -180,9 +181,10 @@ export function Profile({ me }: { me: any }) {
       </section>
       <div className="grid cols-2">
         <section className="card"><h2>Seguridad</h2>
-          <Field id="cp" label="Contraseña actual"><input id="cp" type="password" className="input" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></Field>
+          {me.google && <p className="small muted" style={{ marginTop: 0 }}>Tu cuenta está vinculada con Google.{me.has_password ? '' : ' Puedes crear también una contraseña para entrar sin Google o desbloquear la app si falla la huella.'}</p>}
+          {me.has_password !== false && <Field id="cp" label="Contraseña actual"><input id="cp" type="password" className="input" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></Field>}
           <Field id="np" label="Nueva contraseña (mín. 10)"><input id="np" type="password" className="input" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" /></Field>
-          <button className="btn" disabled={busy || pw.next.length < 10} onClick={async () => { const r = await run(() => api.post('/api/me/password', { current: pw.current, next: pw.next }), 'Contraseña cambiada; otras sesiones cerradas'); if (r) setPw({ current: '', next: '' }); }}>Cambiar contraseña</button>
+          <button className="btn" disabled={busy || pw.next.length < 10} onClick={async () => { const r = await run(() => api.post('/api/me/password', { ...(me.has_password !== false ? { current: pw.current } : {}), next: pw.next }), me.has_password !== false ? 'Contraseña cambiada; otras sesiones cerradas' : 'Contraseña creada'); if (r) { setPw({ current: '', next: '' }); if (me.has_password === false) location.reload(); } }}>{me.has_password !== false ? 'Cambiar contraseña' : 'Crear contraseña'}</button>
           <div className="hr" /><h3>Bloqueo con huella</h3><BiometricLock />
           <div className="hr" /><TwoFactor />
           <div className="hr" /><h3>Sesiones activas</h3>

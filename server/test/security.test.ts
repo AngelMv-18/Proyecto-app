@@ -130,17 +130,18 @@ describe('datos: exportación, restauración y borrado', () => {
 });
 
 describe('despliegue', () => {
-  it('con REGISTRATION_CODE, crear usuario exige el código de instalación', async () => {
+  it('REGISTRATION_CODE protege solo la PRIMERA cuenta de la instalación', async () => {
     const { config } = await import('../src/config.js');
-    const app = await getApp();
+    const { admitNewUser } = await import('../src/services/users.js');
+    const emptyDb: any = { query: async () => ({ rows: [{ n: 0 }] }) };
     (config as any).registrationCode = 'codigo-secreto-123';
     try {
-      const st = (await app.inject({ method: 'GET', url: '/api/auth/status' })).json();
-      expect(st.requires_code).toBe(true);
-      const reg = (code?: string) => app.inject({ method: 'POST', url: '/api/auth/register', headers: { 'x-requested-with': 'nova' }, payload: { email: `code${Date.now()}${Math.random()}@test.local`, password: 'clave-segura-123', display_name: 'X', code } });
-      expect((await reg()).statusCode).toBe(403);
-      expect((await reg('otro')).json().error.code).toBe('bad_registration_code');
-      expect((await reg('codigo-secreto-123')).statusCode).toBe(200);
+      await expect(admitNewUser(emptyDb, {})).rejects.toMatchObject({ code: 'bad_registration_code' });
+      await expect(admitNewUser(emptyDb, { code: 'otro' })).rejects.toMatchObject({ code: 'bad_registration_code' });
+      await expect(admitNewUser(emptyDb, { code: 'codigo-secreto-123' })).resolves.toBeNull();
+      const app = await getApp();
+      // Con usuarios ya creados, el código no se pide (rigen invitaciones / ALLOW_REGISTRATION).
+      expect((await app.inject({ method: 'GET', url: '/api/auth/status' })).json().requires_code).toBe(false);
     } finally { (config as any).registrationCode = ''; }
   });
 

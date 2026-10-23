@@ -7,45 +7,42 @@ import { hashPassword, newToken, openTotp, rateBlocked, rateClear, rateHit, seal
 import { newRecoveryCodes, newTotpSecret, otpauthUri, verifyTotp } from '../services/totp.js';
 import QRCode from 'qrcode';
 import { audit } from '../audit.js';
-import { seedUser } from '../seed.js';
+import { admitNewUser, checkInvite, createUser } from '../services/users.js';
+import { googleLoginConfigured } from '../services/google.js';
 import { parse, uid } from '../http.js';
 import { DEFAULT_ALERT_PREFS } from '../services/alerts.js';
 
 const COOKIE = 'nova_session';
 const pwd = z.string().min(10, 'Mínimo 10 caracteres').max(200);
 
-async function startSession(app: FastifyInstance, req: any, reply: any, userId: string) {
+export async function startSession(app: FastifyInstance, req: any, reply: any, userId: string) {
   const token = newToken();
   // La sesión nace desbloqueada: acabas de identificarte con contraseña (y 2FA si aplica).
   await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at,user_agent,unlocked_until) VALUES ($1,$2, now() + ($3 || ' days')::interval, $4, now() + make_interval(mins => COALESCE((SELECT (settings->'lock'->>'timeout_min')::int FROM users WHERE id=$2), 1)))", [sha256(token), userId, String(config.sessionDays), String(req.headers['user-agent'] ?? '').slice(0, 200)]);
   reply.setCookie(COOKIE, token, { httpOnly: true, secure: config.isProd, sameSite: 'lax', path: '/', maxAge: config.sessionDays * 86400 });
 }
 
-const publicUser = (u: any) => ({ id: u.id, email: u.email, display_name: u.display_name, currency: u.currency, timezone: u.timezone, locale: u.locale, settings: { ...u.settings, alerts: { ...DEFAULT_ALERT_PREFS, ...(u.settings?.alerts ?? {}) } } });
+export const publicUser = (u: any) => ({ id: u.id, email: u.email, has_password: u.has_password !== false, google: Boolean(u.google_sub), display_name: u.display_name, currency: u.currency, timezone: u.timezone, locale: u.locale, settings: { ...u.settings, alerts: { ...DEFAULT_ALERT_PREFS, ...(u.settings?.alerts ?? {}) } } });
 
 export async function authRoutes(app: FastifyInstance) {
-  app.get('/api/auth/status', async () => {
+  app.get('/api/auth/status', async (req) => {
     const n = (await one<{ n: number }>(pool, 'SELECT count(*)::int n FROM users'))!.n;
-    return { has_users: n > 0, registration_open: n === 0 || config.allowRegistration, requires_code: Boolean(config.registrationCode) };
+    const q = parse(z.object({ invite: z.string().max(100).optional() }), req.query);
+    const inv = n > 0 && q.invite ? await checkInvite(pool, q.invite) : null;
+    return {
+      has_users: n > 0, registration_open: n === 0 || config.allowRegistration || Boolean(inv),
+      requires_code: n === 0 && Boolean(config.registrationCode),
+      invite: q.invite ? (inv ? { valid: true, inviter: inv.inviter } : { valid: false }) : undefined,
+      google_login: googleLoginConfigured(),
+    };
   });
 
   app.post('/api/auth/register', async (req, reply) => {
-    const b = parse(z.object({ email: z.string().email().toLowerCase(), password: pwd, display_name: z.string().trim().min(1).max(80), currency: z.string().length(3).toUpperCase().default('HNL'), code: z.string().max(200).optional() }), req.body);
-    if (config.registrationCode) {
-      const { timingSafeEqual } = await import('node:crypto');
-      const a = Buffer.from(sha256(b.code ?? '')), e = Buffer.from(sha256(config.registrationCode));
-      if (!timingSafeEqual(a, e)) throw new AppError(403, 'bad_registration_code', 'Código de instalación incorrecto');
-    }
-    const n = (await one<{ n: number }>(pool, 'SELECT count(*)::int n FROM users'))!.n;
-    if (n > 0 && !config.allowRegistration) throw new AppError(403, 'registration_closed', 'El registro está cerrado en esta instalación');
+    const b = parse(z.object({ email: z.string().email().toLowerCase(), password: pwd, display_name: z.string().trim().min(1).max(80), currency: z.string().length(3).toUpperCase().default('HNL'), code: z.string().max(200).optional(), invite: z.string().max(100).optional() }), req.body);
     const hash = await hashPassword(b.password);
     const u = await withTx(async (c) => {
-      const exists = await one(c, 'SELECT 1 FROM users WHERE email=$1', [b.email]);
-      if (exists) throw new AppError(409, 'email_taken', 'Ya existe una cuenta con ese correo');
-      const u = await one(c, 'INSERT INTO users(email,display_name,password_hash,currency) VALUES ($1,$2,$3,$4) RETURNING *', [b.email, b.display_name, hash, b.currency]);
-      await seedUser(c, u.id);
-      await audit(c, u.id, 'user', u.id, 'register');
-      return u;
+      const inviteId = await admitNewUser(c, { code: b.code, invite: b.invite });
+      return createUser(c, { email: b.email, display_name: b.display_name, password_hash: hash, currency: b.currency, invite_id: inviteId });
     });
     await startSession(app, req, reply, u.id);
     return publicUser(u);
@@ -182,10 +179,11 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/me/password', async (req) => {
-    const b = parse(z.object({ current: z.string().min(1), next: pwd }), req.body);
+    const b = parse(z.object({ current: z.string().max(200).optional(), next: pwd }), req.body);
     const u = await one(pool, 'SELECT * FROM users WHERE id=$1', [uid(req)]);
-    if (!(await verifyPassword(b.current, u.password_hash))) throw new AppError(403, 'wrong_password', 'La contraseña actual no es correcta');
-    await pool.query('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await hashPassword(b.next)]);
+    // Las cuentas creadas con Google pueden crear su primera contraseña sin una anterior.
+    if (u.has_password && !(await verifyPassword(b.current ?? '', u.password_hash))) throw new AppError(403, 'wrong_password', 'La contraseña actual no es correcta');
+    await pool.query('UPDATE users SET password_hash=$2, has_password=true WHERE id=$1', [u.id, await hashPassword(b.next)]);
     // Cierra las demás sesiones.
     const cur = sha256((req.cookies as any)[COOKIE] ?? '');
     await pool.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2', [u.id, cur]);

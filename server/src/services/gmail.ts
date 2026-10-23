@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { config, googleConfigured, googleMissing } from '../config.js';
 import { Db, one, rows } from '../db.js';
 import { audit } from '../audit.js';
@@ -6,6 +5,7 @@ import { decryptSecret, encryptSecret } from '../security.js';
 import { AppError, badRequest } from '../errors.js';
 import { htmlToText, parseFinancialMessage } from './parser.js';
 import { ingestParsed } from './ingest.js';
+import { newOAuthState, takeOAuthState } from './google.js';
 
 // Solo lectura. No se solicitan permisos de envío ni de modificación.
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
@@ -29,24 +29,22 @@ export function gmailStatus(integration?: any) {
   return { configured: true, connected: integration?.status === 'connected', status: integration?.status ?? 'disconnected', account_email: integration?.account_email ?? null, last_sync_at: integration?.last_sync_at ?? null, last_error: integration?.last_error ?? null, config: integration?.config ?? {} };
 }
 
-const pending = new Map<string, { userId: string; at: number }>();
-
-export function authUrl(userId: string) {
+export async function authUrl(db: Db, userId: string) {
   if (!googleConfigured()) throw new AppError(412, 'not_configured', `Gmail no está configurado. Faltan: ${googleMissing().join(', ')}`);
-  const state = randomBytes(24).toString('base64url');
-  pending.set(state, { userId, at: Date.now() });
-  for (const [k, v] of pending) if (Date.now() - v.at > 10 * 60_000) pending.delete(k);
+  const state = await newOAuthState(db, { kind: 'gmail', userId });
+  // Si la cuenta se creó con Google, se preselecciona ese mismo correo: conectar Gmail es un solo clic.
+  const u = await one(db, 'SELECT email, google_sub FROM users WHERE id=$1', [userId]);
   const p = new URLSearchParams({
     client_id: config.google.clientId, redirect_uri: `${config.publicUrl}/api/integrations/gmail/callback`, response_type: 'code',
-    scope: `${GMAIL_SCOPE} openid email`, access_type: 'offline', prompt: 'consent', state, include_granted_scopes: 'false',
+    scope: `${GMAIL_SCOPE} openid email`, access_type: 'offline', prompt: 'consent', state, include_granted_scopes: 'true',
+    ...(u?.google_sub ? { login_hint: u.email } : {}),
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
 }
 
 export async function handleCallback(db: Db, code: string, state: string, f: typeof fetch = fetch) {
-  const st = pending.get(state);
-  pending.delete(state);
-  if (!st || Date.now() - st.at > 10 * 60_000) throw badRequest('Estado OAuth inválido o vencido', 'bad_state');
+  const st = await takeOAuthState<{ kind: string; userId: string }>(db, state);
+  if (!st || st.kind !== 'gmail') throw badRequest('Estado OAuth inválido o vencido', 'bad_state');
   const res = await f('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ code, client_id: config.google.clientId, client_secret: config.google.clientSecret, redirect_uri: `${config.publicUrl}/api/integrations/gmail/callback`, grant_type: 'authorization_code' }),

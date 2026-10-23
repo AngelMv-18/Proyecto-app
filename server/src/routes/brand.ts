@@ -7,6 +7,7 @@ import { one, pool } from '../db.js';
 import { AppError, badRequest } from '../errors.js';
 import { parse, uid } from '../http.js';
 import { audit } from '../audit.js';
+import { isAdmin as isAdminUser } from '../services/users.js';
 
 // Apariencia de la INSTALACIÓN (es una app personal): la define el administrador (el primer usuario creado)
 // y se ve también antes de iniciar sesión (pantalla de acceso, nombre e ícono al instalar en el teléfono).
@@ -20,10 +21,7 @@ export async function getBrand() {
 }
 export const appName = async () => (await getBrand()).app_name;
 
-async function isAdmin(userId: string) {
-  const first = await one<{ id: string }>(pool, 'SELECT id FROM users ORDER BY created_at, id LIMIT 1');
-  return first?.id === userId;
-}
+const isAdmin = (userId: string) => isAdminUser(pool, userId);
 
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'web', 'dist');
 function defaultIcon(size: '192' | '512') {

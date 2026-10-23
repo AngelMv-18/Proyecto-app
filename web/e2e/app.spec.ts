@@ -219,3 +219,28 @@ test('apariencia: cambiar nombre y color se refleja en la app y en el manifiesto
   await expect(page.getByText('Apariencia restablecida')).toBeVisible();
   expect((await (await page.request.get('/manifest.webmanifest')).json()).name).toBe('NOVA FINANCE');
 });
+
+test('compartir: el administrador crea un enlace y un invitado se registra con él', async ({ page, browser }) => {
+  const { Client } = await import('pg');
+  const db = new Client({ connectionString: 'postgres://nova:nova@localhost:5432/nova_e2e' }); await db.connect();
+  const first = (await db.query('SELECT email FROM users ORDER BY created_at, id LIMIT 1')).rows[0]?.email;
+  await db.end();
+  if (!first) await register(page);
+  else { await page.goto('/'); await page.fill('#email', first); await page.fill('#pw', PASS); await page.getByRole('button', { name: 'Entrar' }).click(); await expect(page.locator('.main')).toBeVisible(); }
+  await page.goto('/#/compartir');
+  await page.fill('#in', 'Familia');
+  await page.getByRole('button', { name: 'Crear enlace' }).click();
+  const link = (await page.locator('code').first().textContent())!.trim();
+  expect(link).toMatch(/\/#\/invitacion\//);
+  // El invitado abre el enlace en otro navegador (sin sesión).
+  const guest = await browser.newContext();
+  const g = await guest.newPage();
+  await g.goto(link.replace(/^https?:\/\/[^/]+/, 'http://localhost:3100'));
+  await expect(g.getByRole('heading', { name: 'Te invitaron a probar la app' })).toBeVisible();
+  await g.fill('#name', 'Primo'); await g.fill('#email', `primo${Date.now()}@test.local`); await g.fill('#pw', PASS);
+  await g.getByRole('button', { name: 'Crear cuenta' }).click();
+  await expect(g.getByText('Empecemos por tus cuentas')).toBeVisible();
+  await guest.close();
+  await page.reload();
+  await expect(page.getByText('Se unieron: Primo')).toBeVisible();
+});

@@ -19,13 +19,15 @@ import { dataRoutes } from './routes/data.js';
 import { notifyRoutes } from './routes/notify.js';
 import { lockRoutes, lockPrefs } from './routes/lock.js';
 import { brandRoutes } from './routes/brand.js';
+import { googleRoutes } from './routes/google.js';
+import { inviteRoutes } from './routes/invites.js';
 
 // Rutas permitidas con la sesión BLOQUEADA (para mostrar y resolver la pantalla de huella).
 const LOCK_EXEMPT = new Set(['/api/lock/status', '/api/lock/unlock/options', '/api/lock/unlock/verify', '/api/lock/unlock/password', '/api/auth/logout', '/api/appearance']);
 // Rutas que no requieren sesión de cookie.
-const PUBLIC = new Set(['/api/appearance', '/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/auth/login/2fa', '/api/integrations/gmail/callback', '/api/ingest/notification', '/api/ingest/ping']);
+const PUBLIC = new Set(['/api/appearance', '/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/auth/login/2fa', '/api/integrations/gmail/callback', '/api/auth/google/start', '/api/auth/google/callback', '/api/ingest/notification', '/api/ingest/ping']);
 
-export async function buildApp() {
+export async function buildApp(opts: { fetch?: typeof fetch } = {}) {
   const app = Fastify({
     trustProxy: true,
     bodyLimit: 4 * 1024 * 1024,
@@ -101,6 +103,8 @@ export async function buildApp() {
   await app.register(notifyRoutes);
   await app.register(lockRoutes);
   await app.register(brandRoutes);
+  await app.register(inviteRoutes);
+  await app.register(googleRoutes, { fetch: opts.fetch });
 
   // Interfaz web compilada (despliegue de un solo proceso).
   const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist');

@@ -35,7 +35,7 @@ export async function integrationRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post('/api/integrations/gmail/connect', async (req) => ({ url: authUrl(uid(req)) }));
+  app.post('/api/integrations/gmail/connect', async (req) => ({ url: await authUrl(pool, uid(req)) }));
   // El callback llega desde Google sin cabeceras personalizadas: se valida con el 'state' de un solo uso.
   app.get('/api/integrations/gmail/callback', async (req, reply) => {
     const q = parse(z.object({ code: z.string().optional(), state: z.string().optional(), error: z.string().optional() }), req.query);
