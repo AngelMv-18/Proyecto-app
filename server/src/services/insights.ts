@@ -56,10 +56,11 @@ export async function healthScore(db: Db, userId: string, currency: string, tz: 
 
   const used = parts.filter((p) => p.score != null);
   const w = used.reduce((s, p) => s + p.weight, 0);
-  const score = w ? Math.round(used.reduce((s, p) => s + (p.score as number) * p.weight, 0) / w) : null;
+  // Sin historial real no hay indicador: los factores "sin deudas"/"sin compromisos" por sí solos darían 100 engañosos.
+  const score = w && b.span_days >= 7 ? Math.round(used.reduce((s, p) => s + (p.score as number) * p.weight, 0) / w) : null;
   return {
     score,
-    label: score == null ? 'Sin datos' : score >= 75 ? 'Sólida' : score >= 50 ? 'Estable' : score >= 30 ? 'Frágil' : 'En riesgo',
+    label: score == null ? 'Sin datos suficientes' : score >= 75 ? 'Sólida' : score >= 50 ? 'Estable' : score >= 30 ? 'Frágil' : 'En riesgo',
     insufficient: !b.sufficient,
     note: b.sufficient ? 'Estimación basada en tus últimos 90 días registrados.' : `Datos insuficientes (${b.span_days} días de historial): el indicador es preliminar.`,
     parts,
