@@ -47,7 +47,10 @@ export async function integrationRoutes(app: FastifyInstance) {
       syncGmail(pool, userId).then(() => refreshAlerts(pool, userId)).catch(() => {});
       return reply.redirect('/#/integraciones?gmail=ok');
     }
-    catch { return reply.redirect('/#/integraciones?gmail=error'); }
+    catch (e: any) {
+      req.log.warn({ code: e?.code }, 'gmail callback failed');
+      return reply.redirect(`/#/integraciones?gmail=error&motivo=${encodeURIComponent(String(e?.code ?? 'error').slice(0, 40))}`);
+    }
   });
   app.put('/api/integrations/gmail/config', async (req) => {
     const b = parse(z.object({ senders: z.array(z.string().trim().min(3).max(120)).max(20), label: z.string().max(60).optional(), default_account_id: uuid.nullable(), query: z.string().max(300).optional() }), req.body);

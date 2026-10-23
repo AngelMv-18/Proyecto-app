@@ -45,24 +45,31 @@ export async function authUrl(db: Db, userId: string) {
 export async function handleCallback(db: Db, code: string, state: string, f: typeof fetch = fetch) {
   const st = await takeOAuthState<{ kind: string; userId: string }>(db, state);
   if (!st || st.kind !== 'gmail') throw badRequest('Estado OAuth inválido o vencido', 'bad_state');
-  const res = await f('https://oauth2.googleapis.com/token', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ code, client_id: config.google.clientId, client_secret: config.google.clientSecret, redirect_uri: `${config.publicUrl}/api/integrations/gmail/callback`, grant_type: 'authorization_code' }),
-  });
-  const tok: any = await res.json();
-  if (!res.ok || !tok.refresh_token) throw new AppError(502, 'oauth_failed', 'Google no devolvió un token de actualización. Revoca el acceso en tu cuenta de Google y vuelve a conectar.');
-  if (!String(tok.scope ?? '').includes(GMAIL_SCOPE)) throw badRequest('No se concedió el permiso de lectura de Gmail', 'scope_missing');
-  let email: string | null = null;
-  try { email = JSON.parse(Buffer.from(String(tok.id_token).split('.')[1], 'base64url').toString()).email ?? null; } catch { /* sin email */ }
-  await db.query(
-    `INSERT INTO integrations(user_id,provider,status,account_email,refresh_token_enc) VALUES ($1,'gmail','connected',$2,$3)
-     ON CONFLICT (user_id,provider) DO UPDATE SET status='connected', account_email=$2, refresh_token_enc=$3, last_error=NULL`,
-    [st.userId, email, encryptSecret(tok.refresh_token)],
-  );
-  // Sin pasos extra: si aún no hay cuenta destino, se elige una automáticamente (se puede cambiar después).
-  const acc = await pickDefaultAccount(db, st.userId);
-  if (acc) await db.query(`UPDATE integrations SET config = jsonb_set(COALESCE(config,'{}'::jsonb), '{default_account_id}', to_jsonb($2::text)) WHERE user_id=$1 AND provider='gmail' AND NOT (COALESCE(config,'{}'::jsonb) ? 'default_account_id')`, [st.userId, acc]);
-  await audit(db, st.userId, 'integration', 'gmail', 'connect', null, { account_email: email });
+  // Si algo falla después de validar el state, se deja constancia del motivo (sin datos secretos) para poder diagnosticarlo.
+  try {
+    const res = await f('https://oauth2.googleapis.com/token', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: config.google.clientId, client_secret: config.google.clientSecret, redirect_uri: `${config.publicUrl}/api/integrations/gmail/callback`, grant_type: 'authorization_code' }),
+    });
+    const tok: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new AppError(502, tok.error === 'invalid_client' ? 'invalid_client' : 'oauth_failed', `Google rechazó el intercambio del código (${String(tok.error ?? res.status).slice(0, 40)})`);
+    if (!tok.refresh_token) throw new AppError(502, 'no_refresh_token', 'Google no devolvió un token de actualización. Revoca el acceso en tu cuenta de Google y vuelve a conectar.');
+    if (!String(tok.scope ?? '').includes(GMAIL_SCOPE)) throw badRequest('No se concedió el permiso de lectura de Gmail', 'scope_missing');
+    let email: string | null = null;
+    try { email = JSON.parse(Buffer.from(String(tok.id_token).split('.')[1], 'base64url').toString()).email ?? null; } catch { /* sin email */ }
+    await db.query(
+      `INSERT INTO integrations(user_id,provider,status,account_email,refresh_token_enc) VALUES ($1,'gmail','connected',$2,$3)
+       ON CONFLICT (user_id,provider) DO UPDATE SET status='connected', account_email=$2, refresh_token_enc=$3, last_error=NULL`,
+      [st.userId, email, encryptSecret(tok.refresh_token)],
+    );
+    // Sin pasos extra: si aún no hay cuenta destino, se elige una automáticamente (se puede cambiar después).
+    const acc = await pickDefaultAccount(db, st.userId);
+    if (acc) await db.query(`UPDATE integrations SET config = jsonb_set(COALESCE(config,'{}'::jsonb), '{default_account_id}', to_jsonb($2::text)) WHERE user_id=$1 AND provider='gmail' AND NOT (COALESCE(config,'{}'::jsonb) ? 'default_account_id')`, [st.userId, acc]);
+    await audit(db, st.userId, 'integration', 'gmail', 'connect', null, { account_email: email });
+  } catch (e: any) {
+    await audit(db, st.userId, 'integration', 'gmail', 'connect_failed', null, { reason: e?.code ?? 'error', ...(e?.code ? {} : { detail: String(e?.message ?? '').slice(0, 120) }) }).catch(() => {});
+    throw e;
+  }
   return st.userId;
 }
 

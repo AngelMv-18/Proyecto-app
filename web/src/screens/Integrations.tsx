@@ -29,6 +29,14 @@ function GmailSetup({ g }: { g: any }) {
   );
 }
 
+const GMAIL_ERRORS: Record<string, string> = {
+  scope_missing: 'Falta el permiso de Gmail: en la pantalla de Google marca la casilla «Ver tus mensajes de correo electrónico» y vuelve a vincular.',
+  invalid_client: 'Google rechazó las credenciales del servidor: revisa que GOOGLE_CLIENT_SECRET esté completo en Render.',
+  no_refresh_token: 'Google no entregó el acceso permanente. Quita NOVA en myaccount.google.com → Seguridad → Apps con acceso y vuelve a vincular.',
+  bad_state: 'El enlace de vinculación venció. Toca «Vincular mi Gmail» de nuevo.',
+  oauth_failed: 'Google rechazó la vinculación. Vuelve a intentarlo en unos minutos.',
+};
+
 function GmailCard({ g, accounts }: { g: any; accounts: any[] }) {
   const [run, busy] = useAction();
   const [senders, setSenders] = useState((g.config?.senders ?? []).join(', ')); const [label, setLabel] = useState(g.config?.label ?? '');
@@ -36,7 +44,7 @@ function GmailCard({ g, accounts }: { g: any; accounts: any[] }) {
   useEffect(() => {
     const s = query.get('gmail');
     if (s === 'ok') toast('Gmail vinculado. Estamos revisando tus correos recientes; lo detectado aparecerá en «Revisión».', 'ok');
-    if (s === 'error') toast('No se pudo completar la vinculación con Gmail. Inténtalo de nuevo.', 'error');
+    if (s === 'error') toast(GMAIL_ERRORS[query.get('motivo') ?? ''] ?? 'No se pudo completar la vinculación con Gmail. Inténtalo de nuevo.', 'error');
     if (s === 'cancelado') toast('Vinculación cancelada. No se concedió ningún permiso.');
   }, []); // eslint-disable-line
   const open = accounts.filter((a) => !a.archived);

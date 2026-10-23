@@ -62,6 +62,23 @@ describe('Gmail con un botón', () => {
     expect(calls.some((c) => /\/(send|modify|trash|delete)/.test(c))).toBe(false);
   });
 
+  it('si Google falla al vincular, queda registrado el motivo y no se finge la conexión', async () => {
+    const u = await seededUser();
+    const cases: [any, string][] = [
+      [{ error: 'invalid_client' }, 'invalid_client'],
+      [{ access_token: 'at', scope: 'openid email' }, 'no_refresh_token'],
+      [{ refresh_token: 'rt', access_token: 'at', scope: 'openid email' }, 'scope_missing'],
+    ];
+    for (const [resp, reason] of cases) {
+      const url = new URL(await authUrl(pool, u.user.id));
+      const f = (async () => new Response(JSON.stringify(resp), { status: resp.error ? 401 : 200 })) as any;
+      await expect(handleCallback(pool, 'c', url.searchParams.get('state')!, f)).rejects.toMatchObject({ code: reason });
+    }
+    const a = await pool.query(`SELECT after->>'reason' r FROM audit_log WHERE user_id=$1 AND action='connect_failed' ORDER BY created_at`, [u.user.id]);
+    expect(a.rows.map((x) => x.r)).toEqual(['invalid_client', 'no_refresh_token', 'scope_missing']);
+    expect((await u.ok(u.get('/api/integrations'))).gmail.connected).toBe(false);
+  });
+
   it('el programador revisa Gmail automáticamente cada hora', async () => {
     const u = await seededUser();
     const url = new URL(await authUrl(pool, u.user.id));
