@@ -237,10 +237,11 @@ test('compartir: el administrador crea un enlace y un invitado se registra con Ã
   const g = await guest.newPage();
   await g.goto(link.replace(/^https?:\/\/[^/]+/, 'http://localhost:3100'));
   await expect(g.getByRole('heading', { name: 'Te invitaron a probar la app' })).toBeVisible();
-  await g.fill('#name', 'Primo'); await g.fill('#email', `primo${Date.now()}@test.local`); await g.fill('#pw', PASS);
+  const guestName = `Primo ${Date.now()}`;
+  await g.fill('#name', guestName); await g.fill('#email', `primo${Date.now()}@test.local`); await g.fill('#pw', PASS);
   await g.getByRole('button', { name: 'Crear cuenta' }).click();
   await expect(g.getByText('Empecemos por tus cuentas')).toBeVisible();
   await guest.close();
   await page.reload();
-  await expect(page.getByText('Se unieron: Primo')).toBeVisible();
+  await expect(page.getByText(`Se unieron: ${guestName}`)).toBeVisible();
 });
