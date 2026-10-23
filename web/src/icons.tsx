@@ -1,4 +1,5 @@
-import { SVGProps } from 'react';
+import { SVGProps, useId } from 'react';
+import { useBrand } from './brand';
 
 const P: Record<string, string> = {
   home: 'M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
@@ -49,15 +50,21 @@ export function Icon({ name, size = 22, ...rest }: { name: string; size?: number
 }
 
 export function Logo({ size = 34, text = true }: { size?: number; text?: boolean }) {
+  const b = useBrand();
+  // Id único por instancia: si se repite y la primera copia está oculta (p. ej. menú lateral en móvil), el degradado no se pinta.
+  const gid = `lg${useId().replace(/:/g, '')}`;
+  const words = b.app_name.trim().split(/\s+/);
   return (
-    <span className="logo" aria-label="NOVA FINANCE">
-      <svg width={size} height={size} viewBox="0 0 48 48" role="img" aria-hidden="true">
-        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#C6FF3D" /><stop offset="1" stopColor="#2DE2D0" /></linearGradient></defs>
-        <rect width="48" height="48" rx="14" fill="#0E1217" stroke="rgba(255,255,255,.12)" />
-        <path d="M13 35V13l22 22V13" stroke="url(#lg)" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <path d="M38 4l1.4 4 4 1.4-4 1.4L38 14.8l-1.4-4-4-1.4 4-1.4z" fill="#C6FF3D" />
-      </svg>
-      {text && <span>NOVA<span style={{ color: 'var(--lime)' }}> FINANCE</span></span>}
+    <span className="logo" aria-label={b.app_name}>
+      {b.has_logo ? <img src={`/brand/icon-192.png?v=${b.logo_version}`} alt="" width={size} height={size} style={{ width: size, height: size }} /> : (
+        <svg width={size} height={size} viewBox="0 0 48 48" role="img" aria-hidden="true">
+          <defs><linearGradient id={gid} x1="0" y1="0" x2="1" y2="1"><stop offset="0" style={{ stopColor: 'var(--lime)' }} /><stop offset="1" stopColor="#2DE2D0" /></linearGradient></defs>
+          <rect width="48" height="48" rx="14" fill="#0E1217" stroke="rgba(255,255,255,.12)" />
+          <path d="M13 35V13l22 22V13" stroke={`url(#${gid})`} strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M38 4l1.4 4 4 1.4-4 1.4L38 14.8l-1.4-4-4-1.4 4-1.4z" style={{ fill: 'var(--lime)' }} />
+        </svg>
+      )}
+      {text && <span>{words[0]}{words.length > 1 && <span style={{ color: 'var(--lime)' }}> {words.slice(1).join(' ')}</span>}</span>}
     </span>
   );
 }

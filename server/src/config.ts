@@ -46,3 +46,9 @@ export function googleMissing(): string[] {
 }
 
 export const pushConfigured = () => Boolean(config.push.publicKey && config.push.privateKey);
+
+/** Relying Party de WebAuthn: el dominio público de la app (la huella queda ligada a ese dominio). */
+export function webauthnRp() {
+  const u = new URL(config.publicUrl);
+  return { rpID: u.hostname, origin: u.origin };
+}

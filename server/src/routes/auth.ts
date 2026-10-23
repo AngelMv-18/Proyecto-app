@@ -16,7 +16,8 @@ const pwd = z.string().min(10, 'Mínimo 10 caracteres').max(200);
 
 async function startSession(app: FastifyInstance, req: any, reply: any, userId: string) {
   const token = newToken();
-  await pool.query('INSERT INTO sessions(token_hash,user_id,expires_at,user_agent) VALUES ($1,$2, now() + ($3 || \' days\')::interval, $4)', [sha256(token), userId, String(config.sessionDays), String(req.headers['user-agent'] ?? '').slice(0, 200)]);
+  // La sesión nace desbloqueada: acabas de identificarte con contraseña (y 2FA si aplica).
+  await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at,user_agent,unlocked_until) VALUES ($1,$2, now() + ($3 || ' days')::interval, $4, now() + make_interval(mins => COALESCE((SELECT (settings->'lock'->>'timeout_min')::int FROM users WHERE id=$2), 1)))", [sha256(token), userId, String(config.sessionDays), String(req.headers['user-agent'] ?? '').slice(0, 200)]);
   reply.setCookie(COOKIE, token, { httpOnly: true, secure: config.isProd, sameSite: 'lax', path: '/', maxAge: config.sessionDays * 86400 });
 }
 

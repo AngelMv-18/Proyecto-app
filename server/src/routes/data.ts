@@ -8,7 +8,7 @@ import { verifyPassword } from '../security.js';
 
 // Orden respetando claves foráneas. Las tablas con auto-referencias se insertan por pasos.
 const TABLES = ['categories', 'accounts', 'goals', 'debts', 'recurring', 'imports', 'transactions', 'receipts', 'budgets', 'reconciliations', 'notifications', 'fx_rates'] as const;
-const DELETE_ORDER = ['push_subscriptions', 'fx_rates', 'reconciliations', 'receipts', 'budgets', 'notifications', 'transactions', 'recurring', 'imports', 'goals', 'debts', 'accounts', 'categories', 'integrations'];
+const DELETE_ORDER = ['webauthn_credentials', 'push_subscriptions', 'fx_rates', 'reconciliations', 'receipts', 'budgets', 'notifications', 'transactions', 'recurring', 'imports', 'goals', 'debts', 'accounts', 'categories', 'integrations'];
 
 async function requirePassword(userId: string, password: string) {
   const u = await one(pool, 'SELECT password_hash FROM users WHERE id=$1', [userId]);

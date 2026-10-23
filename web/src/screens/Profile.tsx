@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { api } from '../api';
 import { dateTime } from '../format';
 import { Icon } from '../icons';
+import { BiometricLock } from './Appearance';
 import { Field, Sheet, Switch, confirmDialog, nav, toast, toastError, useAction, useApi } from '../ui';
 
 const LOCALES = [['es-HN', 'Honduras'], ['es-MX', 'México'], ['es-GT', 'Guatemala'], ['es-SV', 'El Salvador'], ['es-ES', 'España'], ['es-CO', 'Colombia'], ['en-US', 'English (US)']];
@@ -140,6 +141,7 @@ export function Profile({ me }: { me: any }) {
       <section className="card"><h2>Gestión</h2><div className="list">
         <Link to="/cuentas" icon="wallet" label="Cuentas" sub="Efectivo, bancos, tarjetas y conciliación" /><Link to="/metas" icon="target" label="Metas de ahorro" sub="Progreso y planes" /><Link to="/deudas" icon="scale" label="Deudas y préstamos" sub="Lo que debo y me deben" />
         <Link to="/recurrentes" icon="repeat" label="Pagos recurrentes" sub="Suscripciones, facturas y servicios" /><Link to="/informes" icon="chart" label="Informes" sub="Estados, flujo de caja y exportación" /><Link to="/integraciones" icon="plug" label="Integraciones" sub="Correo, notificaciones y extractos" /><Link to="/revision" icon="check" label="Revisión de movimientos" sub="Detectados e importados" />
+        <Link to="/apariencia" icon="spark" label="Apariencia y bloqueo con huella" sub="Colores, nombre, logotipo y desbloqueo biométrico" />
       </div></section>
       <div className="grid cols-2">
         <section className="card"><h2>Formato y región</h2>
@@ -181,6 +183,7 @@ export function Profile({ me }: { me: any }) {
           <Field id="cp" label="Contraseña actual"><input id="cp" type="password" className="input" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></Field>
           <Field id="np" label="Nueva contraseña (mín. 10)"><input id="np" type="password" className="input" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" /></Field>
           <button className="btn" disabled={busy || pw.next.length < 10} onClick={async () => { const r = await run(() => api.post('/api/me/password', { current: pw.current, next: pw.next }), 'Contraseña cambiada; otras sesiones cerradas'); if (r) setPw({ current: '', next: '' }); }}>Cambiar contraseña</button>
+          <div className="hr" /><h3>Bloqueo con huella</h3><BiometricLock />
           <div className="hr" /><TwoFactor />
           <div className="hr" /><h3>Sesiones activas</h3>
           {sessions?.map((s, i) => <div key={i} className="xs muted" style={{ overflowWrap: 'anywhere' }}>{dateTime(s.created_at)} · {s.user_agent?.slice(0, 60) || 'dispositivo'}</div>)}
@@ -191,7 +194,7 @@ export function Profile({ me }: { me: any }) {
             <li>Contraseña con scrypt; sesión en cookie HttpOnly (el token se guarda con hash).</li><li>Cada consulta se filtra por tu usuario en el servidor; hay pruebas automáticas de aislamiento.</li>
             <li>Validación de entradas, protección CSRF, límite de intentos de acceso y cabeceras de seguridad (CSP).</li><li>Los saldos se calculan desde los movimientos; nada se borra en silencio y todo cambio queda auditado.</li>
             <li>Tokens de Google cifrados en reposo (AES-256-GCM) y solo en el servidor. No guardamos claves bancarias.</li><li>Los registros técnicos no incluyen importes, comercios ni cuerpos de solicitud.</li>
-            <li>Verificación en dos pasos (TOTP) opcional con códigos de recuperación; límite de intentos persistente en la base de datos.</li><li><b>Pendiente:</b> passkeys y cifrado de la base de datos en disco. HTTPS depende de cómo despliegues el servidor.</li>
+            <li>Verificación en dos pasos (TOTP) opcional con códigos de recuperación; límite de intentos persistente en la base de datos.</li><li>Bloqueo con huella (WebAuthn) exigido por el servidor: sin desbloqueo reciente la API no entrega datos.</li><li><b>Pendiente:</b> inicio de sesión solo con passkey y cifrado de la base de datos en disco. HTTPS depende de cómo despliegues el servidor.</li>
           </ul></section>
       </div>
       {sheet && <DataSheet kind={sheet} onClose={() => setSheet(null)} />}

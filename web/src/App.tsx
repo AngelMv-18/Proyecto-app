@@ -16,7 +16,11 @@ import { Recurring } from './screens/Recurring';
 import { Reports } from './screens/Reports';
 import { Integrations } from './screens/Integrations';
 import { Review } from './screens/Review';
+import { Appearance } from './screens/Appearance';
 import { Notifications, SearchSheet } from './screens/Misc';
+import { LockScreen } from './components/Lock';
+import { loadBrand } from './brand';
+import { invalidate } from './ui';
 
 // Estado global mínimo para abrir el formulario rápido desde cualquier pantalla.
 type TxState = { kind: 'expense' | 'income' | 'transfer'; tx?: any } | null;
@@ -34,7 +38,7 @@ const MAIN = [
 ];
 const MORE = [
   { to: '/cuentas', label: 'Cuentas', icon: 'wallet' }, { to: '/metas', label: 'Metas', icon: 'target' }, { to: '/deudas', label: 'Deudas', icon: 'scale' },
-  { to: '/recurrentes', label: 'Recurrentes', icon: 'repeat' }, { to: '/informes', label: 'Informes', icon: 'chart' }, { to: '/integraciones', label: 'Integraciones', icon: 'plug' },
+  { to: '/recurrentes', label: 'Recurrentes', icon: 'repeat' }, { to: '/informes', label: 'Informes', icon: 'chart' }, { to: '/integraciones', label: 'Integraciones', icon: 'plug' }, { to: '/apariencia', label: 'Apariencia', icon: 'spark' },
 ];
 
 function AuthScreen({ onDone }: { onDone: () => void }) {
@@ -120,6 +124,7 @@ function Shell({ me }: { me: any }) {
     case '/informes': screen = <Reports />; break;
     case '/integraciones': screen = <Integrations />; break;
     case '/revision': screen = <Review />; break;
+    case '/apariencia': screen = <Appearance />; break;
     default: screen = <div className="empty"><h3>Pantalla no encontrada</h3><button className="btn" onClick={() => nav('/')}>Ir al inicio</button></div>;
   }
   const NavLink = ({ it }: { it: (typeof MAIN)[number] }) => (
@@ -156,18 +161,38 @@ function Shell({ me }: { me: any }) {
 }
 
 export function App() {
-  const [state, setState] = useState<'loading' | 'out' | 'in'>('loading');
+  const [state, setState] = useState<'loading' | 'out' | 'in' | 'locked-boot'>('loading');
+  const [locked, setLocked] = useState(false);
   const [me, setMe] = useState<any>(null);
   const load = async () => {
-    try { const m = await api.get('/api/me'); setFmt({ locale: m.locale, currency: m.currency, timezone: m.timezone }); setMe(m); setState('in'); }
-    catch (e) { if (e instanceof ApiError && e.status === 401) setState('out'); else { toastError(e); setState('out'); } }
+    try {
+      const m = await api.get('/api/me');
+      setFmt({ locale: m.locale, currency: m.currency, timezone: m.timezone });
+      setMe(m); setLocked(false); setState('in');
+      loadBrand(); // ahora con sesión: sabe si eres administrador
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) setState('out');
+      else if (e instanceof ApiError && e.status === 423) { setLocked(true); setState((s) => (s === 'in' ? 'in' : 'locked-boot')); }
+      else { toastError(e); setState('out'); }
+    }
   };
-  useEffect(() => { load(); const f = () => setState('out'); window.addEventListener('nova:unauthorized', f); return () => window.removeEventListener('nova:unauthorized', f); }, []);
+  useEffect(() => {
+    loadBrand();
+    load();
+    const out = () => setState('out');
+    const lock = () => setLocked(true);
+    // Al volver a la app tras un rato, el servidor decide si hay que pedir la huella otra vez.
+    const vis = () => { if (document.visibilityState === 'visible') api.get('/api/lock/status').then((s) => { if (s.locked) setLocked(true); }).catch(() => {}); };
+    window.addEventListener('nova:unauthorized', out); window.addEventListener('nova:locked', lock); document.addEventListener('visibilitychange', vis);
+    return () => { window.removeEventListener('nova:unauthorized', out); window.removeEventListener('nova:locked', lock); document.removeEventListener('visibilitychange', vis); };
+  }, []);
+  const unlocked = () => { setLocked(false); if (state === 'locked-boot' || !me) load(); else invalidate(); };
   return (
     <>
       {state === 'loading' && <div className="login"><Logo size={56} /></div>}
       {state === 'out' && <AuthScreen onDone={load} />}
-      {state === 'in' && <Shell me={me} />}
+      {state === 'in' && me && <Shell me={me} />}
+      {(locked || state === 'locked-boot') && state !== 'out' && <LockScreen onUnlocked={unlocked} />}
       <ConfirmHost /><Toasts />
     </>
   );

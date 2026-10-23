@@ -15,6 +15,7 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     const e = data?.error;
     if (res.status === 401 && !url.includes('/auth/')) window.dispatchEvent(new Event('nova:unauthorized'));
+    if (res.status === 423) window.dispatchEvent(new Event('nova:locked'));
     throw new ApiError(res.status, e?.code ?? 'error', e?.message ?? `Error ${res.status}`, e?.fields);
   }
   return data as T;

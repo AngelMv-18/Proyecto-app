@@ -169,3 +169,53 @@ test('billetera: la tarjeta con banco se ve en la pila y su detalle muestra fond
   await expect(page.locator('.wv-info .kpi').first()).toContainText('2,500.00');
   await expect(page.getByRole('img', { name: /terminada en 1824/ }).first()).toBeVisible();
 });
+
+test('bloqueo con huella: se activa, bloquea al volver y se desbloquea con la huella', async ({ page, context }) => {
+  // Autenticador de plataforma virtual de Chrome (equivale al lector de huellas del teléfono).
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  await register(page);
+  await page.goto('/#/apariencia');
+  await page.getByRole('button', { name: 'Activar con mi huella' }).click();
+  await expect(page.getByText('Huella registrada', { exact: false })).toBeVisible();
+  await expect(page.getByText('Activado')).toBeVisible();
+  // Simula que pasó el tiempo de bloqueo: la próxima apertura exige la huella.
+  const { Client } = await import('pg');
+  const db = new Client({ connectionString: 'postgres://nova:nova@localhost:5432/nova_e2e' }); await db.connect();
+  await db.query(`UPDATE sessions SET unlocked_until = now() - interval '1 minute'`); await db.end();
+  await page.goto('/#/'); await page.reload();
+  await expect(page.getByRole('dialog', { name: 'App bloqueada' })).toBeVisible();
+  // La huella virtual responde sola (presencia automática): la app se desbloquea.
+  await expect(page.getByRole('dialog', { name: 'App bloqueada' })).toBeHidden({ timeout: 15000 });
+  await expect(page.getByText('Empecemos por tus cuentas')).toBeVisible();
+});
+
+test('apariencia: cambiar nombre y color se refleja en la app y en el manifiesto', async ({ page }) => {
+  // La apariencia la cambia el administrador (la primera cuenta de la instalación).
+  const { Client } = await import('pg');
+  const db = new Client({ connectionString: 'postgres://nova:nova@localhost:5432/nova_e2e' }); await db.connect();
+  let first = (await db.query('SELECT email FROM users ORDER BY created_at, id LIMIT 1')).rows[0]?.email;
+  await db.end();
+  if (!first) first = await register(page);
+  else {
+    await page.goto('/'); await page.fill('#email', first); await page.fill('#pw', PASS);
+    await page.getByRole('button', { name: 'Entrar' }).click();
+    await expect(page.locator('.main')).toBeVisible();
+  }
+  await page.goto('/#/apariencia');
+  await page.fill('#bn', 'Finanzas Ana');
+  await page.getByRole('button', { name: 'Turquesa' }).click();
+  await page.getByRole('button', { name: 'Medianoche' }).click();
+  await page.getByRole('button', { name: 'Guardar apariencia' }).click();
+  await expect(page.getByText('Apariencia guardada')).toBeVisible();
+  const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--lime').trim());
+  expect(accent.toUpperCase()).toBe('#2DE2D0');
+  expect(await page.title()).toBe('Finanzas Ana');
+  const m = await (await page.request.get('/manifest.webmanifest')).json();
+  expect(m.name).toBe('Finanzas Ana');
+  await page.getByRole('button', { name: 'Restablecer' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Restablecer' }).click();
+  await expect(page.getByText('Apariencia restablecida')).toBeVisible();
+  expect((await (await page.request.get('/manifest.webmanifest')).json()).name).toBe('NOVA FINANCE');
+});
