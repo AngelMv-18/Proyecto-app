@@ -59,8 +59,18 @@ export async function handleCallback(db: Db, code: string, state: string, f: typ
      ON CONFLICT (user_id,provider) DO UPDATE SET status='connected', account_email=$2, refresh_token_enc=$3, last_error=NULL`,
     [st.userId, email, encryptSecret(tok.refresh_token)],
   );
+  // Sin pasos extra: si aún no hay cuenta destino, se elige una automáticamente (se puede cambiar después).
+  const acc = await pickDefaultAccount(db, st.userId);
+  if (acc) await db.query(`UPDATE integrations SET config = jsonb_set(COALESCE(config,'{}'::jsonb), '{default_account_id}', to_jsonb($2::text)) WHERE user_id=$1 AND provider='gmail' AND NOT (COALESCE(config,'{}'::jsonb) ? 'default_account_id')`, [st.userId, acc]);
   await audit(db, st.userId, 'integration', 'gmail', 'connect', null, { account_email: email });
   return st.userId;
+}
+
+/** Cuenta donde registrar lo detectado: primero tarjetas/cuentas bancarias, luego cualquier cuenta activa en la moneda principal. */
+export async function pickDefaultAccount(db: Db, userId: string): Promise<string | null> {
+  const r = await one<{ id: string }>(db, `SELECT a.id FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.user_id=$1 AND NOT a.archived
+     ORDER BY (a.currency = u.currency) DESC, CASE a.type WHEN 'debit_card' THEN 0 WHEN 'bank' THEN 1 WHEN 'credit_card' THEN 2 WHEN 'wallet' THEN 3 ELSE 4 END, a.sort_order, a.created_at LIMIT 1`, [userId]);
+  return r?.id ?? null;
 }
 
 export async function disconnect(db: Db, userId: string, f: typeof fetch = fetch) {
@@ -92,7 +102,11 @@ export async function syncGmail(db: Db, userId: string, f: typeof fetch = fetch)
   if (!googleConfigured()) throw new AppError(412, 'not_configured', `Gmail no está configurado. Faltan: ${googleMissing().join(', ')}`);
   if (!i || i.status !== 'connected') throw new AppError(409, 'not_connected', 'Gmail no está conectado');
   const cfg: GmailConfig = { senders: [], ...(i.config ?? {}) };
-  if (!cfg.default_account_id) throw badRequest('Elige la cuenta donde se registrarán los movimientos detectados', 'no_default_account');
+  if (!cfg.default_account_id || !(await one(db, 'SELECT 1 FROM accounts WHERE id=$1 AND user_id=$2 AND NOT archived', [cfg.default_account_id, userId]))) {
+    cfg.default_account_id = await pickDefaultAccount(db, userId);
+    if (!cfg.default_account_id) throw badRequest('Primero crea una cuenta o tarjeta: ahí se registrarán las compras detectadas', 'no_default_account');
+    await db.query(`UPDATE integrations SET config=$2 WHERE id=$1`, [i.id, JSON.stringify(cfg)]);
+  }
 
   const tr = await f('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },

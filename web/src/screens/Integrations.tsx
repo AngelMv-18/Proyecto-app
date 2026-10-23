@@ -6,36 +6,65 @@ import { ErrorBlock, Field, LoadingBlock, Sheet, confirmDialog, nav, toast, toas
 
 function Status({ ok, label }: { ok: boolean | 'warn'; label: string }) { return <span className={`badge ${ok === true ? 'teal' : ok === 'warn' ? 'warn' : ''}`}>{label}</span>; }
 
+function CopyRow({ value }: { value: string }) {
+  const copy = async () => { try { await navigator.clipboard.writeText(value); toast('Copiado', 'ok'); } catch { toast('No se pudo copiar: mantén presionado el texto para copiarlo', 'error'); } };
+  return <div className="row" style={{ gap: 6, minWidth: 0 }}><code style={{ overflowWrap: 'anywhere', userSelect: 'all', flex: 1, minWidth: 0 }}>{value}</code><button className="btn sm" onClick={copy}>Copiar</button></div>;
+}
+
+/** Asistente para el administrador: activar «Vincular con Google» una sola vez para todos los usuarios. */
+function GmailSetup({ g }: { g: any }) {
+  if (!g.is_admin) return <p className="small muted">Tu administrador aún no activó la conexión con Gmail en esta instalación. Mientras tanto puedes registrar a mano, importar extractos o usar NOVA Captura.</p>;
+  return (
+    <details className="small" open>
+      <summary><b>Activarlo para todos (solo tú lo haces, una vez)</b></summary>
+      <ol style={{ paddingLeft: 18, display: 'grid', gap: 8 }}>
+        <li>Abre <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud → Crear proyecto</a> y luego habilita la <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noreferrer">Gmail API</a>.</li>
+        <li>En <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer">Pantalla de consentimiento</a> elige «Externo», añade el permiso <code>gmail.readonly</code> y agrega como <b>usuarios de prueba</b> tu Gmail y el de cada familiar.</li>
+        <li>En <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Credenciales</a> crea un «ID de cliente de OAuth» tipo <b>Aplicación web</b> con estos URI de redirección:
+          <div className="stack" style={{ gap: 4, marginTop: 6 }}>{(g.redirect_uris ?? []).map((u: string) => <CopyRow key={u} value={u} />)}</div></li>
+        <li>Copia el ID y el secreto en tu servidor (Render → Environment) como {(g.missing ?? ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET']).map((m: string) => <code key={m} style={{ marginRight: 6 }}>{m}</code>)} y guarda. Render se reinicia solo.</li>
+      </ol>
+      <p className="muted">Mientras la app esté en modo «Pruebas», Google pide volver a vincular cada 7 días y solo funcionan los correos agregados como usuarios de prueba.</p>
+    </details>
+  );
+}
+
 function GmailCard({ g, accounts }: { g: any; accounts: any[] }) {
   const [run, busy] = useAction();
-  const [senders, setSenders] = useState((g.config?.senders ?? []).join(', ')); const [label, setLabel] = useState(g.config?.label ?? ''); const [acc, setAcc] = useState(g.config?.default_account_id ?? accounts[0]?.id ?? '');
+  const [senders, setSenders] = useState((g.config?.senders ?? []).join(', ')); const [label, setLabel] = useState(g.config?.label ?? '');
   const { query } = useRoute();
-  useEffect(() => { const s = query.get('gmail'); if (s === 'ok') toast('Gmail conectado. Elige la cuenta destino y los remitentes.', 'ok'); if (s === 'error') toast('No se pudo completar la conexión con Gmail.', 'error'); }, []); // eslint-disable-line
-  if (!g.configured) {
-    return (
-      <section className="card"><div className="row between"><h2 style={{ margin: 0 }}>Correo (Gmail)</h2><Status ok={false} label="No configurado" /></div>
-        <p className="small muted">Lee solo confirmaciones de compras y avisos de tu banco, con permiso de <b>solo lectura</b>. No envía ni modifica correos y no guarda el contenido de los mensajes. <b>Aún no está conectado</b>: faltan credenciales del servidor.</p>
-        <p className="small"><b>Falta definir:</b> {g.missing.map((m: string) => <code key={m} style={{ marginRight: 6 }}>{m}</code>)}</p>
-        <ol className="small muted" style={{ paddingLeft: 18, display: 'grid', gap: 4 }}>{g.steps.map((s: string, i: number) => <li key={i}>{s}</li>)}</ol>
-      </section>
-    );
-  }
+  useEffect(() => {
+    const s = query.get('gmail');
+    if (s === 'ok') toast('Gmail vinculado. Estamos revisando tus correos recientes; lo detectado aparecerá en «Revisión».', 'ok');
+    if (s === 'error') toast('No se pudo completar la vinculación con Gmail. Inténtalo de nuevo.', 'error');
+    if (s === 'cancelado') toast('Vinculación cancelada. No se concedió ningún permiso.');
+  }, []); // eslint-disable-line
+  const open = accounts.filter((a) => !a.archived);
+  const link = async () => { const r = await run(() => api.post('/api/integrations/gmail/connect')); if (r?.url) location.href = r.url; };
+  const badge = !g.configured ? <Status ok={false} label="No activado" /> : <Status ok={g.connected ? true : g.status === 'error' ? 'warn' : false} label={g.connected ? 'Conectado' : g.status === 'error' ? 'Requiere volver a vincular' : 'Sin vincular'} />;
   return (
-    <section className="card"><div className="row between"><h2 style={{ margin: 0 }}>Correo (Gmail)</h2><Status ok={g.connected} label={g.connected ? 'Conectado' : g.status === 'error' ? 'Error' : 'Sin conectar'} /></div>
-      {!g.connected ? (<><p className="small muted">Se abrirá la pantalla oficial de Google para que autorices el acceso de solo lectura. Nunca vemos tu contraseña.</p>
-        {g.last_error && <p className="err">{g.last_error}</p>}
-        <button className="btn primary" disabled={busy} onClick={async () => { const r = await run(() => api.post('/api/integrations/gmail/connect')); if (r?.url) location.href = r.url; }}><Icon name="mail" size={18} />Conectar con Google</button></>) : (<>
-        <p className="small muted">Cuenta: <b>{g.account_email ?? '—'}</b> · última sincronización: {g.last_sync_at ? dateTime(g.last_sync_at) : 'nunca'}</p>
-        <Field id="gs" label="Remitentes a revisar (separados por comas)" hint="Ej.: alertas@tubanco.hn, notificaciones@bac.net. Sin remitentes se usa solo la búsqueda por palabras clave."><input id="gs" className="input" value={senders} onChange={(e) => setSenders(e.target.value)} /></Field>
-        <div className="grid cols-2" style={{ gap: 0 }}>
-          <Field id="gl" label="Etiqueta de Gmail (opcional)"><input id="gl" className="input" value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
-          <Field id="ga" label="Cuenta donde registrar"><select id="ga" className="input" value={acc} onChange={(e) => setAcc(e.target.value)}>{accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-        </div>
+    <section className="card"><div className="row between"><h2 style={{ margin: 0 }}>Correo (Gmail)</h2>{badge}</div>
+      {!g.connected ? (<>
+        <p className="small muted">Registra solas las compras y avisos que te llegan por correo de tu banco. Google te pedirá permiso de <b>solo lectura</b>: NOVA no envía, borra ni modifica correos, no ve tu contraseña y no guarda el contenido de los mensajes. Todo lo detectado queda «por revisar» antes de tocar tus saldos.</p>
+        {g.last_error && <p className="err small">{g.last_error}</p>}
+        {g.configured
+          ? <button className="btn primary block" disabled={busy || !open.length} onClick={link}><Icon name="mail" size={18} />{g.status === 'error' ? 'Volver a vincular mi Gmail' : 'Vincular mi Gmail'}</button>
+          : <GmailSetup g={g} />}
+        {g.configured && !open.length && <p className="small muted">Primero <a href="#/cuentas?nueva=1">crea una cuenta o tarjeta</a> donde registrar lo que se detecte.</p>}
+      </>) : (<>
+        <p className="small muted"><b>{g.account_email ?? 'Tu Gmail'}</b> · revisa automáticamente cada hora · última revisión: {g.last_sync_at ? dateTime(g.last_sync_at) : 'en curso…'}</p>
+        <Field id="ga" label="Registrar lo detectado en"><select id="ga" className="input" value={g.default_account?.id ?? ''} disabled={busy} onChange={(e) => run(() => api.patch('/api/integrations/gmail/account', { default_account_id: e.target.value }), 'Cuenta actualizada')}>
+          {!g.default_account && <option value="">Elegir cuenta…</option>}{open.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
         <div className="row wrap">
-          <button className="btn" disabled={busy} onClick={() => run(() => api.put('/api/integrations/gmail/config', { senders: senders.split(',').map((s: string) => s.trim()).filter(Boolean), label: label || undefined, default_account_id: acc || null }), 'Configuración guardada')}>Guardar</button>
-          <button className="btn primary" disabled={busy} onClick={async () => { const r = await run(() => api.post('/api/integrations/gmail/sync')); if (r) toast(`${r.scanned} correos revisados · ${r.created} nuevos por revisar · ${r.duplicates} duplicados · ${r.ignored} ignorados`, 'ok'); }}>Sincronizar ahora</button>
-          <button className="btn danger" disabled={busy} onClick={async () => { if (await confirmDialog('Se revocará el acceso en Google y se borrará el token guardado. Los movimientos ya importados se conservan.', 'Desconectar')) run(() => api.del('/api/integrations/gmail'), 'Gmail desconectado'); }}>Desconectar y revocar</button>
-        </div></>)}
+          <button className="btn primary" disabled={busy} onClick={async () => { const r = await run(() => api.post('/api/integrations/gmail/sync')); if (r) toast(r.created ? `${r.created} movimiento(s) nuevo(s) por revisar` : `Revisé ${r.scanned} correo(s): nada nuevo`, 'ok'); }}>Revisar ahora</button>
+          <button className="btn danger" disabled={busy} onClick={async () => { if (await confirmDialog('Se revocará el acceso en Google y se borrará el token guardado. Los movimientos ya importados se conservan.', 'Desvincular')) run(() => api.del('/api/integrations/gmail'), 'Gmail desvinculado'); }}>Desvincular</button>
+        </div>
+        <details className="small" style={{ marginTop: 10 }}>
+          <summary className="muted">Opciones avanzadas (opcional)</summary>
+          <Field id="gs" label="Solo estos remitentes (separados por comas)" hint="Vacío = se buscan avisos de compras y bancos por palabras clave."><input id="gs" className="input" value={senders} onChange={(e) => setSenders(e.target.value)} /></Field>
+          <Field id="gl" label="Solo esta etiqueta de Gmail"><input id="gl" className="input" value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
+          <button className="btn sm" disabled={busy} onClick={() => run(() => api.put('/api/integrations/gmail/config', { ...g.config, senders: senders.split(',').map((s: string) => s.trim()).filter(Boolean), label: label || undefined, default_account_id: g.default_account?.id ?? g.config?.default_account_id ?? null }), 'Filtros guardados')}>Guardar filtros</button>
+        </details></>)}
     </section>
   );
 }

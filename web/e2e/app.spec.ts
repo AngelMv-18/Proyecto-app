@@ -70,10 +70,11 @@ test('permisos: sin sesión se muestra el acceso y una sesión vencida vuelve al
 test('Gmail no configurado se informa con honestidad y no finge estar conectado', async ({ page }) => {
   await register(page);
   await page.goto('/#/integraciones');
-  await expect(page.getByText('No configurado')).toBeVisible();
-  await expect(page.getByText('GOOGLE_CLIENT_ID', { exact: true })).toBeVisible();
+  await expect(page.getByText('No activado')).toBeVisible();
+  // El administrador ve el asistente con los valores para copiar; los demás, un aviso sin pasos técnicos.
+  await expect(page.getByText('GOOGLE_CLIENT_ID', { exact: true }).or(page.getByText(/administrador aún no activó/))).toBeVisible();
   await expect(page.getByText('Sin API pública')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Conectar con Google/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Vincular mi Gmail/ })).toHaveCount(0);
 });
 
 test('la app sirve sin conectar nada: transferencia no cambia el total y NOVA AI avisa si faltan datos', async ({ page }) => {

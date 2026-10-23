@@ -12,6 +12,7 @@ import { ingestParsed } from '../services/ingest.js';
 import { CsvMapping, guessMapping, importRows, parseCsv, rowsFromCsv, rowsFromOfx } from '../services/importer.js';
 import { refreshAlerts } from '../services/alerts.js';
 import { getUser } from '../services/stats.js';
+import { isAdmin } from '../services/users.js';
 
 const uuid = z.string().uuid();
 export async function integrationRoutes(app: FastifyInstance) {
@@ -21,7 +22,7 @@ export async function integrationRoutes(app: FastifyInstance) {
     const u = await one(pool, 'SELECT ingest_token_hash, settings FROM users WHERE id=$1', [uid(req)]);
     const imports = await rows(pool, 'SELECT id,kind,filename,total_rows,created_rows,duplicate_rows,skipped_rows,created_at FROM imports WHERE user_id=$1 ORDER BY created_at DESC LIMIT 10', [uid(req)]);
     return {
-      gmail: gmailStatus(g),
+      gmail: { ...gmailStatus(g), is_admin: await isAdmin(pool, uid(req)), redirect_uris: [`${config.publicUrl}/api/auth/google/callback`, `${config.publicUrl}/api/integrations/gmail/callback`], default_account: g?.config?.default_account_id ? await one(pool, 'SELECT id, name FROM accounts WHERE id=$1 AND user_id=$2', [g.config.default_account_id, uid(req)]) : null },
       notifications: {
         status: u.ingest_token_hash ? 'token_activo' : 'sin_token',
         endpoint: `${config.publicUrl}/api/ingest/notification`,
@@ -40,13 +41,25 @@ export async function integrationRoutes(app: FastifyInstance) {
   app.get('/api/integrations/gmail/callback', async (req, reply) => {
     const q = parse(z.object({ code: z.string().optional(), state: z.string().optional(), error: z.string().optional() }), req.query);
     if (q.error || !q.code || !q.state) return reply.redirect('/#/integraciones?gmail=cancelado');
-    try { await handleCallback(pool, q.code, q.state); return reply.redirect('/#/integraciones?gmail=ok'); }
+    try {
+      const userId = await handleCallback(pool, q.code, q.state);
+      // Primera revisión inmediata, en segundo plano (la persona no espera en la pantalla de Google).
+      syncGmail(pool, userId).then(() => refreshAlerts(pool, userId)).catch(() => {});
+      return reply.redirect('/#/integraciones?gmail=ok');
+    }
     catch { return reply.redirect('/#/integraciones?gmail=error'); }
   });
   app.put('/api/integrations/gmail/config', async (req) => {
     const b = parse(z.object({ senders: z.array(z.string().trim().min(3).max(120)).max(20), label: z.string().max(60).optional(), default_account_id: uuid.nullable(), query: z.string().max(300).optional() }), req.body);
     if (b.default_account_id && !(await one(pool, 'SELECT 1 FROM accounts WHERE id=$1 AND user_id=$2', [b.default_account_id, uid(req)]))) throw badRequest('Cuenta no válida');
     const r = await pool.query(`UPDATE integrations SET config=$2 WHERE user_id=$1 AND provider='gmail'`, [uid(req), JSON.stringify(b)]);
+    if (!r.rowCount) throw new AppError(409, 'not_connected', 'Gmail no está conectado');
+    return { ok: true };
+  });
+  app.patch('/api/integrations/gmail/account', async (req) => {
+    const b = parse(z.object({ default_account_id: uuid }), req.body);
+    if (!(await one(pool, 'SELECT 1 FROM accounts WHERE id=$1 AND user_id=$2', [b.default_account_id, uid(req)]))) throw badRequest('Cuenta no válida');
+    const r = await pool.query(`UPDATE integrations SET config = jsonb_set(COALESCE(config,'{}'::jsonb), '{default_account_id}', to_jsonb($2::text)) WHERE user_id=$1 AND provider='gmail'`, [uid(req), b.default_account_id]);
     if (!r.rowCount) throw new AppError(409, 'not_connected', 'Gmail no está conectado');
     return { ok: true };
   });

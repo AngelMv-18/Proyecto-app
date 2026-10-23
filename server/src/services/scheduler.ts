@@ -3,6 +3,8 @@ import { pool, rows } from '../db.js';
 import { refreshAlerts } from './alerts.js';
 import { buildDigest, Period } from './digest.js';
 import { dispatchPending, Sender } from './push.js';
+import { syncGmail } from './gmail.js';
+import { googleConfigured } from '../config.js';
 
 export const DEFAULT_DIGEST_PREFS = { daily: false, weekly: true, monthly: true };
 
@@ -22,7 +24,7 @@ export function dueDigests(tz: string, now: Date, prefs = DEFAULT_DIGEST_PREFS):
 }
 
 /** Una pasada del programador. Usa un candado de PostgreSQL para que solo una réplica lo ejecute. */
-export async function runScheduledOnce(now = new Date(), sender?: Sender) {
+export async function runScheduledOnce(now = new Date(), sender?: Sender, opts: { fetch?: typeof fetch; skipGmail?: boolean } = {}) {
   const c = await pool.connect();
   try {
     const lock = (await c.query('SELECT pg_try_advisory_lock(727001) AS ok')).rows[0].ok;
@@ -42,7 +44,13 @@ export async function runScheduledOnce(now = new Date(), sender?: Sender) {
           pushed += await dispatchPending(c, u.id, u.settings, sender);
         } catch { /* un usuario con error no detiene al resto */ }
       }
-      return { skipped: false, users: users.length, digests, pushed };
+      // Gmail conectado: revisión automática cada hora (sin que la persona tenga que pulsar nada).
+      let gmail = 0;
+      if (googleConfigured() && !opts.skipGmail) {
+        const due = await rows(c, `SELECT user_id FROM integrations WHERE provider='gmail' AND status='connected' AND (last_sync_at IS NULL OR last_sync_at < now() - interval '55 minutes')`);
+        for (const g of due) { try { await syncGmail(c, g.user_id, opts.fetch); await refreshAlerts(c, g.user_id); gmail++; } catch { /* el error queda en la integración */ } }
+      }
+      return { skipped: false, users: users.length, digests, pushed, gmail };
     } finally {
       await c.query('SELECT pg_advisory_unlock(727001)');
     }
