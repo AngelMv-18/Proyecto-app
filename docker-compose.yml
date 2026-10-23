@@ -1,0 +1,20 @@
+# Despliegue de un solo servidor: app + PostgreSQL. Pon HTTPS delante (Caddy, Nginx o el proxy de tu hosting).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD}
+      POSTGRES_DB: nova
+    volumes: [pgdata:/var/lib/postgresql/data]
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on: [db]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://nova:${POSTGRES_PASSWORD}@db:5432/nova
+    ports: ["3000:3000"]
+volumes:
+  pgdata:
