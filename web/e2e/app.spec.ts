@@ -73,7 +73,7 @@ test('Gmail no configurado se informa con honestidad y no finge estar conectado'
   await expect(page.getByText('No activado')).toBeVisible();
   // El administrador ve el asistente con los valores para copiar; los demás, un aviso sin pasos técnicos.
   await expect(page.getByText('GOOGLE_CLIENT_ID', { exact: true }).or(page.getByText(/administrador aún no activó/))).toBeVisible();
-  await expect(page.getByText('Sin API pública')).toBeVisible();
+  await expect(page.getByText('Sin API pública')).toHaveCount(0); // solo queda el correo
   await expect(page.getByRole('button', { name: /Vincular mi Gmail/ })).toHaveCount(0);
 });
 

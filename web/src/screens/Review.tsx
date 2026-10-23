@@ -15,7 +15,7 @@ export function Review() {
     <div className="stack">
       <div className="row between"><h1>Revisión</h1>{items.length > 0 && <button className="btn primary sm" disabled={busy} onClick={() => run(() => api.post('/api/transactions/review/confirm-all', { ids: items.filter((t) => !t.duplicate_of).map((t) => t.id) }), 'Movimientos confirmados')}>Confirmar todos (sin duplicados)</button>}</div>
       <p className="muted small" style={{ margin: 0 }}>Los movimientos detectados (correo, notificación) o importados no afectan tus saldos ni informes hasta que los confirmes. Puedes corregir categoría, importe o cuenta antes de confirmar.</p>
-      {!items.length ? <section className="card"><Empty icon="check" title="Todo al día" text="No hay movimientos pendientes de revisión." action={<button className="btn" onClick={() => nav('/integraciones')}>Ver integraciones</button>} /></section> : (
+      {!items.length ? <section className="card"><Empty icon="check" title="Todo al día" text="No hay movimientos pendientes de revisión." action={<button className="btn" onClick={() => nav('/integraciones')}>Vincular mi Gmail</button>} /></section> : (
         <section className="card"><div className="list">
           {items.map((t) => (
             <div key={t.id} style={{ borderBottom: '1px solid var(--line)', paddingBottom: 8 }}>
