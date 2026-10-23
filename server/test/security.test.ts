@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { L, closeApp, getApp, newUser, seededUser, Client } from './helpers.js';
 import { resetThrottle, encryptSecret, decryptSecret } from '../src/security.js';
+import { pool } from '../src/db.js';
 
 afterAll(closeApp);
 
@@ -49,14 +50,13 @@ describe('autorización y aislamiento', () => {
   });
 
   it('la cookie de sesión es HttpOnly y SameSite, y el token no se guarda en claro', async () => {
-    resetThrottle();
+    await resetThrottle(pool);
     const app = await getApp();
     const u = await newUser();
     const r = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'nova' }, payload: { email: u.email, password: u.password } });
     const sc = String(r.headers['set-cookie']);
     expect(sc).toMatch(/HttpOnly/i); expect(sc).toMatch(/SameSite=Lax/i);
     const token = sc.match(/nova_session=([^;]+)/)![1];
-    const { pool } = await import('../src/db.js');
     const rows = (await pool.query('SELECT token_hash FROM sessions')).rows.map((x) => x.token_hash);
     expect(rows).not.toContain(token);
     const pw = (await pool.query('SELECT password_hash FROM users WHERE email=$1', [u.email])).rows[0].password_hash;
@@ -65,7 +65,7 @@ describe('autorización y aislamiento', () => {
   });
 
   it('bloquea tras demasiados intentos fallidos y no revela si el correo existe', async () => {
-    resetThrottle();
+    await resetThrottle(pool);
     const app = await getApp();
     const u = await newUser();
     const attempt = (email: string) => app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'x-requested-with': 'nova' }, payload: { email, password: 'incorrecta-123' } });
@@ -74,7 +74,7 @@ describe('autorización y aislamiento', () => {
     let last = known;
     for (let i = 0; i < 9; i++) last = await attempt(u.email);
     expect(last.statusCode).toBe(429);
-    resetThrottle();
+    await resetThrottle(pool);
   });
 
   it('el registro se cierra cuando ALLOW_REGISTRATION no está activo y ya hay usuarios', async () => {

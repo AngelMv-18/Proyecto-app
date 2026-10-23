@@ -18,7 +18,7 @@ import { integrationRoutes } from './routes/integrations.js';
 import { dataRoutes } from './routes/data.js';
 
 // Rutas que no requieren sesión de cookie.
-const PUBLIC = new Set(['/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/integrations/gmail/callback', '/api/ingest/notification']);
+const PUBLIC = new Set(['/api/health', '/api/auth/status', '/api/auth/register', '/api/auth/login', '/api/auth/login/2fa', '/api/integrations/gmail/callback', '/api/ingest/notification']);
 
 export async function buildApp() {
   const app = Fastify({

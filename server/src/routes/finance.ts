@@ -100,6 +100,23 @@ export async function financeRoutes(app: FastifyInstance) {
     return rows(pool, 'SELECT * FROM reconciliations WHERE account_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 50', [id, uid(req)]);
   });
 
+  // ---------- Tipos de cambio manuales ----------
+  app.get('/api/fx', async (req) => rows(pool, 'SELECT currency, rate, updated_at FROM fx_rates WHERE user_id=$1 ORDER BY currency', [uid(req)]));
+  app.put('/api/fx', async (req) => {
+    const b = parse(z.object({ currency: z.string().length(3).toUpperCase(), rate: z.number().positive().max(1e9) }), req.body);
+    const u = await getUser(pool, uid(req));
+    if (b.currency === u.currency) throw badRequest('Esa es tu moneda principal');
+    const r = await one(pool, `INSERT INTO fx_rates(user_id,currency,rate) VALUES ($1,$2,$3) ON CONFLICT (user_id,currency) DO UPDATE SET rate=$3, updated_at=now() RETURNING currency, rate, updated_at`, [uid(req), b.currency, b.rate]);
+    await audit(pool, uid(req), 'fx_rate', b.currency, 'upsert', null, r);
+    return r;
+  });
+  app.delete('/api/fx/:currency', async (req) => {
+    const { currency } = parse(z.object({ currency: z.string().length(3).toUpperCase() }), req.params);
+    await pool.query('DELETE FROM fx_rates WHERE user_id=$1 AND currency=$2', [uid(req), currency]);
+    await audit(pool, uid(req), 'fx_rate', currency, 'delete');
+    return { ok: true };
+  });
+
   // ---------- Categorías ----------
   app.get('/api/categories', async (req) => rows(pool, 'SELECT * FROM categories WHERE user_id=$1 ORDER BY kind, parent_id NULLS FIRST, name', [uid(req)]));
   app.post('/api/categories', async (req) => {

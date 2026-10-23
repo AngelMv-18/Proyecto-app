@@ -37,21 +37,29 @@ export function decryptSecret(blob: string): string {
   return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
 }
 
-// Limitador en memoria para intentos de acceso (por clave: ip+email).
-const attempts = new Map<string, { n: number; first: number }>();
-const WINDOW = 15 * 60_000;
-const MAX = 8;
-export function loginThrottle(key: string): { blocked: boolean; retryInSec: number } {
-  const now = Date.now();
-  const a = attempts.get(key);
-  if (!a || now - a.first > WINDOW) return { blocked: false, retryInSec: 0 };
-  return a.n >= MAX ? { blocked: true, retryInSec: Math.ceil((a.first + WINDOW - now) / 1000) } : { blocked: false, retryInSec: 0 };
+// Limitador de intentos persistente en PostgreSQL (funciona con varias réplicas y tras reinicios).
+import type { Db } from './db.js';
+export async function rateBlocked(db: Db, key: string, max: number, windowSec: number): Promise<{ blocked: boolean; retryInSec: number }> {
+  const r = (await db.query(`SELECT hits, EXTRACT(EPOCH FROM (window_start + make_interval(secs => $2) - now()))::int AS left FROM rate_limits WHERE key=$1 AND window_start > now() - make_interval(secs => $2)`, [key, windowSec])).rows[0];
+  return r && r.hits >= max ? { blocked: true, retryInSec: Math.max(r.left, 1) } : { blocked: false, retryInSec: 0 };
 }
-export function loginFailed(key: string) {
-  const now = Date.now();
-  const a = attempts.get(key);
-  if (!a || now - a.first > WINDOW) attempts.set(key, { n: 1, first: now });
-  else a.n++;
+export async function rateHit(db: Db, key: string, windowSec: number): Promise<number> {
+  const r = await db.query(
+    `INSERT INTO rate_limits(key,hits,window_start) VALUES ($1,1,now())
+     ON CONFLICT (key) DO UPDATE SET
+       hits = CASE WHEN rate_limits.window_start <= now() - make_interval(secs => $2) THEN 1 ELSE rate_limits.hits + 1 END,
+       window_start = CASE WHEN rate_limits.window_start <= now() - make_interval(secs => $2) THEN now() ELSE rate_limits.window_start END
+     RETURNING hits`, [key, windowSec]);
+  return r.rows[0].hits;
 }
-export function loginOk(key: string) { attempts.delete(key); }
-export function resetThrottle() { attempts.clear(); }
+export async function rateClear(db: Db, key: string) { await db.query('DELETE FROM rate_limits WHERE key=$1', [key]); }
+/** Lanza 429 si se supera el máximo en la ventana; si no, cuenta el intento. */
+export async function rateLimit(db: Db, key: string, max: number, windowSec: number) {
+  const n = await rateHit(db, key, windowSec);
+  if (n > max) { const { AppError } = await import('./errors.js'); throw new AppError(429, 'rate_limited', 'Demasiadas solicitudes. Espera un momento.'); }
+}
+export async function resetThrottle(db?: Db) { if (db) await db.query('DELETE FROM rate_limits'); }
+
+// Secreto TOTP en reposo: cifrado si hay APP_ENCRYPTION_KEY; si no, se guarda marcado (y se advierte en la interfaz).
+export const sealTotp = (secret: string) => (config.encryptionKey ? `enc:${encryptSecret(secret)}` : `plain:${secret}`);
+export const openTotp = (stored: string) => (stored.startsWith('enc:') ? decryptSecret(stored.slice(4)) : stored.replace(/^plain:/, ''));

@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { one, pool, rows, withTx } from '../db.js';
 import { AppError, badRequest, unauthorized } from '../errors.js';
-import { hashPassword, loginFailed, loginOk, loginThrottle, newToken, sha256, verifyPassword } from '../security.js';
+import { hashPassword, newToken, openTotp, rateBlocked, rateClear, rateHit, sealTotp, sha256, verifyPassword } from '../security.js';
+import { newRecoveryCodes, newTotpSecret, otpauthUri, verifyTotp } from '../services/totp.js';
+import QRCode from 'qrcode';
 import { audit } from '../audit.js';
 import { seedUser } from '../seed.js';
 import { parse, uid } from '../http.js';
@@ -45,17 +47,92 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/api/auth/login', async (req, reply) => {
     const b = parse(z.object({ email: z.string().email().toLowerCase(), password: z.string().min(1).max(200) }), req.body);
-    const key = `${req.ip}|${b.email}`;
-    const th = loginThrottle(key);
+    const key = `login:${req.ip}|${b.email}`;
+    const th = await rateBlocked(pool, key, 8, 900);
     if (th.blocked) throw new AppError(429, 'too_many_attempts', `Demasiados intentos. Intenta de nuevo en ${Math.ceil(th.retryInSec / 60)} min.`);
     const u = await one(pool, 'SELECT * FROM users WHERE email=$1', [b.email]);
     // Se verifica siempre un hash para no revelar por tiempo si el correo existe.
     const ok = u ? await verifyPassword(b.password, u.password_hash) : (await verifyPassword(b.password, 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$' + 'A'.repeat(86) + '=='), false);
-    if (!u || !ok) { loginFailed(key); await audit(pool, u?.id ?? null, 'user', u?.id ?? null, 'login_failed'); throw unauthorized('Correo o contraseña incorrectos'); }
-    loginOk(key);
+    if (!u || !ok) { await rateHit(pool, key, 900); await audit(pool, u?.id ?? null, 'user', u?.id ?? null, 'login_failed'); throw unauthorized('Correo o contraseña incorrectos'); }
+    await rateClear(pool, key);
+    if (u.totp_enabled) {
+      // Segundo paso: se entrega un ticket de un solo uso; la sesión solo se crea tras validar el código.
+      const ticket = newToken();
+      await pool.query(`INSERT INTO login_tickets(token_hash,user_id,expires_at) VALUES ($1,$2, now() + interval '5 minutes')`, [sha256(ticket), u.id]);
+      return { two_factor_required: true, ticket };
+    }
     await startSession(app, req, reply, u.id);
     await audit(pool, u.id, 'user', u.id, 'login');
     return publicUser(u);
+  });
+
+  app.post('/api/auth/login/2fa', async (req, reply) => {
+    const b = parse(z.object({ ticket: z.string().min(10).max(100), code: z.string().trim().min(6).max(20) }), req.body);
+    const t = await one(pool, `UPDATE login_tickets SET attempts = attempts + 1 WHERE token_hash=$1 AND expires_at > now() RETURNING *`, [sha256(b.ticket)]);
+    if (!t || t.attempts > 5) { if (t) await pool.query('DELETE FROM login_tickets WHERE token_hash=$1', [sha256(b.ticket)]); throw unauthorized('El paso de verificación venció. Inicia sesión de nuevo.'); }
+    const u = await one(pool, 'SELECT * FROM users WHERE id=$1', [t.user_id]);
+    let ok = false;
+    const step = u.totp_secret ? verifyTotp(openTotp(u.totp_secret), b.code, u.totp_last_step) : null;
+    if (step != null) { ok = true; await pool.query('UPDATE users SET totp_last_step=$2 WHERE id=$1', [u.id, step]); }
+    else {
+      const rc = await one(pool, `UPDATE recovery_codes SET used_at=now() WHERE id = (SELECT id FROM recovery_codes WHERE user_id=$1 AND used_at IS NULL AND code_hash=$2 LIMIT 1) RETURNING id`, [u.id, sha256(b.code.toUpperCase().replace(/[\s-]/g, ''))]);
+      if (rc) { ok = true; await audit(pool, u.id, 'user', u.id, 'recovery_code_used'); }
+    }
+    if (!ok) { await audit(pool, u.id, 'user', u.id, 'login_2fa_failed'); throw unauthorized('Código incorrecto'); }
+    await pool.query('DELETE FROM login_tickets WHERE token_hash=$1 OR expires_at < now()', [sha256(b.ticket)]);
+    await startSession(app, req, reply, u.id);
+    await audit(pool, u.id, 'user', u.id, 'login');
+    return publicUser(u);
+  });
+
+  // ---------- Verificación en dos pasos ----------
+  app.get('/api/me/2fa', async (req) => {
+    const u = await one(pool, 'SELECT totp_enabled, totp_secret FROM users WHERE id=$1', [uid(req)]);
+    const left = (await one<{ n: number }>(pool, 'SELECT count(*)::int n FROM recovery_codes WHERE user_id=$1 AND used_at IS NULL', [uid(req)]))!.n;
+    return { enabled: u.totp_enabled, recovery_remaining: left, secret_encrypted: Boolean(u.totp_secret?.startsWith('enc:')) || (!u.totp_secret && Boolean(config.encryptionKey)) };
+  });
+  const needPassword = async (userId: string, password: string) => {
+    const u = await one(pool, 'SELECT * FROM users WHERE id=$1', [userId]);
+    if (!(await verifyPassword(password, u.password_hash))) throw new AppError(403, 'wrong_password', 'Contraseña incorrecta');
+    return u;
+  };
+  app.post('/api/me/2fa/setup', async (req) => {
+    const b = parse(z.object({ password: z.string().min(1) }), req.body);
+    const u = await needPassword(uid(req), b.password);
+    if (u.totp_enabled) throw new AppError(409, 'already_enabled', 'La verificación en dos pasos ya está activa');
+    const secret = newTotpSecret();
+    await pool.query('UPDATE users SET totp_secret=$2, totp_last_step=NULL WHERE id=$1', [u.id, sealTotp(secret)]);
+    const uri = otpauthUri(secret, u.email);
+    const qr = await QRCode.toString(uri, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0B0D10', light: '#FFFFFF' } });
+    return { secret, uri, qr_svg: qr };
+  });
+  app.post('/api/me/2fa/enable', async (req) => {
+    const b = parse(z.object({ code: z.string().trim() }), req.body);
+    const u = await one(pool, 'SELECT * FROM users WHERE id=$1', [uid(req)]);
+    if (!u.totp_secret) throw badRequest('Primero genera el código QR');
+    if (u.totp_enabled) throw new AppError(409, 'already_enabled', 'Ya está activa');
+    const step = verifyTotp(openTotp(u.totp_secret), b.code, null);
+    if (step == null) throw badRequest('Código incorrecto. Revisa la hora de tu teléfono.', 'bad_code', { code: 'Código incorrecto' });
+    const codes = newRecoveryCodes();
+    await withTx(async (c) => {
+      await c.query('UPDATE users SET totp_enabled=true, totp_last_step=$2 WHERE id=$1', [u.id, step]);
+      await c.query('DELETE FROM recovery_codes WHERE user_id=$1', [u.id]);
+      for (const code of codes) await c.query('INSERT INTO recovery_codes(user_id,code_hash) VALUES ($1,$2)', [u.id, sha256(code.replace('-', ''))]);
+      await audit(c, u.id, 'user', u.id, '2fa_enabled');
+    });
+    return { enabled: true, recovery_codes: codes };
+  });
+  app.post('/api/me/2fa/disable', async (req) => {
+    const b = parse(z.object({ password: z.string().min(1), code: z.string().trim() }), req.body);
+    const u = await needPassword(uid(req), b.password);
+    if (!u.totp_enabled) return { enabled: false };
+    if (verifyTotp(openTotp(u.totp_secret), b.code, u.totp_last_step) == null) throw badRequest('Código incorrecto', 'bad_code', { code: 'Código incorrecto' });
+    await withTx(async (c) => {
+      await c.query('UPDATE users SET totp_enabled=false, totp_secret=NULL, totp_last_step=NULL WHERE id=$1', [u.id]);
+      await c.query('DELETE FROM recovery_codes WHERE user_id=$1', [u.id]);
+      await audit(c, u.id, 'user', u.id, '2fa_disabled');
+    });
+    return { enabled: false };
   });
 
   app.post('/api/auth/logout', async (req, reply) => {

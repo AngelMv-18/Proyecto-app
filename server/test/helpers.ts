@@ -30,7 +30,7 @@ export class Client {
 }
 
 export async function newUser(opts: { currency?: string } = {}) {
-  resetThrottle();
+  await resetThrottle(pool);
   const app = await getApp();
   const c = new Client(app);
   const email = `u${Date.now()}_${++n}@test.local`;

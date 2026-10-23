@@ -19,6 +19,8 @@ async function createCash(page: Page, balance = '1000') {
   await page.fill('#ao', balance);
   await page.getByRole('button', { name: 'Guardar' }).click();
   await expect(page.getByText('Cuenta creada')).toBeVisible();
+  await page.goto('/#/');
+  await expect(page.locator('.hero')).toBeVisible();
 }
 
 test('flujo principal: registro, cuenta, gasto rápido y saldo actualizado', async ({ page }) => {
@@ -119,4 +121,24 @@ test('movimientos: anular exige motivo, conserva el historial y devuelve el sald
   await expect(page.locator('.hero .big')).toContainText('1,000.00');
   await page.goto('/#/movimientos');
   await expect(page.getByText('Anulado').first()).toBeVisible();
+});
+
+test('2FA: tras activarla, el acceso pide el código de la app de autenticación', async ({ page, context }) => {
+  const { totpAt, currentStep } = await import('../../server/src/services/totp');
+  const email = await register(page);
+  const h = { 'x-requested-with': 'nova' };
+  const setup = await (await page.request.post('/api/me/2fa/setup', { headers: h, data: { password: PASS } })).json();
+  const en = await page.request.post('/api/me/2fa/enable', { headers: h, data: { code: totpAt(setup.secret, currentStep()) } });
+  expect(en.ok()).toBeTruthy();
+  await context.clearCookies();
+  await page.goto('/'); await page.reload();
+  await page.fill('#email', email); await page.fill('#pw', PASS);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.getByLabel('Código de verificación')).toBeVisible();
+  await page.fill('#otp', '000000');
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page.getByRole('alert')).toContainText('Código incorrecto');
+  await page.fill('#otp', totpAt(setup.secret, currentStep() + 1));
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page.getByText('Empecemos por tus cuentas')).toBeVisible();
 });

@@ -7,8 +7,8 @@ import { audit } from '../audit.js';
 import { verifyPassword } from '../security.js';
 
 // Orden respetando claves foráneas. Las tablas con auto-referencias se insertan por pasos.
-const TABLES = ['categories', 'accounts', 'goals', 'debts', 'recurring', 'imports', 'transactions', 'receipts', 'budgets', 'reconciliations', 'notifications'] as const;
-const DELETE_ORDER = ['reconciliations', 'receipts', 'budgets', 'notifications', 'transactions', 'recurring', 'imports', 'goals', 'debts', 'accounts', 'categories', 'integrations'];
+const TABLES = ['categories', 'accounts', 'goals', 'debts', 'recurring', 'imports', 'transactions', 'receipts', 'budgets', 'reconciliations', 'notifications', 'fx_rates'] as const;
+const DELETE_ORDER = ['fx_rates', 'reconciliations', 'receipts', 'budgets', 'notifications', 'transactions', 'recurring', 'imports', 'goals', 'debts', 'accounts', 'categories', 'integrations'];
 
 async function requirePassword(userId: string, password: string) {
   const u = await one(pool, 'SELECT password_hash FROM users WHERE id=$1', [userId]);
@@ -70,6 +70,7 @@ export async function dataRoutes(app: FastifyInstance) {
       await insertRows(c, 'budgets', id, d.budgets ?? []);
       await insertRows(c, 'reconciliations', id, d.reconciliations ?? []);
       await insertRows(c, 'notifications', id, d.notifications ?? []);
+      await insertRows(c, 'fx_rates', id, d.fx_rates ?? []);
       if (d.user?.settings) await c.query('UPDATE users SET settings=$2 WHERE id=$1', [id, JSON.stringify(d.user.settings)]);
       await audit(c, id, 'data', null, 'restore', null, { transactions: tx.length, accounts: (d.accounts ?? []).length });
     });

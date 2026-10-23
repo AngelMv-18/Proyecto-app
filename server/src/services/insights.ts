@@ -26,12 +26,17 @@ export async function baseline(db: Db, userId: string, currency: string, tz: str
 
 export async function liquidSummary(db: Db, userId: string, currency: string) {
   const accs = await accountsWithBalances(db, userId);
-  const base = accs.filter((a) => !a.archived && a.currency === currency);
-  const liquid = base.filter((a) => LIQUID_TYPES.includes(a.type)).reduce((s, a) => s + a.balance, 0);
-  const reserved = base.filter((a) => LIQUID_TYPES.includes(a.type)).reduce((s, a) => s + a.reserved_virtual, 0);
-  const cards_owed = base.filter((a) => a.type === 'credit_card').reduce((s, a) => s + a.owed, 0);
-  const foreign = accs.filter((a) => !a.archived && a.currency !== currency);
-  return { accs, liquid, reserved, cards_owed, foreign, free: liquid - reserved };
+  const active = accs.filter((a) => !a.archived);
+  // Cuentas en otra moneda se suman solo si el usuario definió un tipo de cambio (se marca como estimación).
+  const usable = active.filter((a) => a.balance_base != null);
+  const isLiquid = (a: any) => LIQUID_TYPES.includes(a.type);
+  const conv = (a: any, v: number) => (a.currency === currency ? v : Math.round(v * a.fx_rate));
+  const liquid = usable.filter(isLiquid).reduce((s, a) => s + a.balance_base, 0);
+  const reserved = usable.filter(isLiquid).reduce((s, a) => s + conv(a, a.reserved_virtual), 0);
+  const cards_owed = usable.filter((a) => a.type === 'credit_card').reduce((s, a) => s + conv(a, a.owed), 0);
+  const foreign = active.filter((a) => a.currency !== currency && a.balance_base == null);
+  const converted = active.filter((a) => a.currency !== currency && a.balance_base != null);
+  return { accs, liquid, reserved, cards_owed, foreign, converted, free: liquid - reserved };
 }
 
 export async function healthScore(db: Db, userId: string, currency: string, tz: string) {
@@ -95,15 +100,14 @@ export async function dashboard(db: Db, userId: string) {
   const totalBudget = budgets.filter((b) => b.period === 'monthly').reduce((s, b) => s + b.amount, 0);
   const spentBudget = budgets.filter((b) => b.period === 'monthly').reduce((s, b) => s + b.spent, 0);
   const alerts = await rows(db, `SELECT * FROM notifications WHERE user_id=$1 AND read_at IS NULL ORDER BY created_at DESC LIMIT 5`, [userId]);
-  const accsBase = ls.accs.filter((a) => !a.archived && a.currency === cur);
-  const net_worth = accsBase.reduce((s, a) => s + a.balance, 0) + owed - owe;
+  const net_worth = ls.accs.filter((a) => !a.archived && a.balance_base != null).reduce((s, a) => s + a.balance_base, 0) + owed - owe;
   return {
     currency: cur, period: month,
     available: ls.liquid, reserved: ls.reserved, committed, free_to_spend: ls.free - committed,
     net_worth, receivable: owed, payable: owe, cards_owed: ls.cards_owed,
     month: thisM, prev_month: prevM,
     budget: { total: totalBudget, spent: spentBudget, pct: totalBudget ? Math.round((spentBudget / totalBudget) * 1000) / 10 : null },
-    accounts: ls.accs.filter((a) => !a.archived), foreign_accounts: ls.foreign.length,
+    accounts: ls.accs.filter((a) => !a.archived), foreign_accounts: ls.foreign.length, converted_accounts: ls.converted.length,
     categories: cats, budgets, goals: goals.filter((g) => g.status === 'active'),
     obligations: obligations.slice(0, 6), health, recent: recent.items, monthly: series, balance_series: balanceSeries,
     review_count: reviewCount, alerts,
@@ -132,6 +136,7 @@ export async function evaluatePurchase(db: Db, userId: string, p: PurchaseInput)
   const target = p.goal_id ? goals.find((g) => g.id === p.goal_id) : goals.filter((g) => g.priority === 1)[0] ?? goals[0];
 
   const assumptions: string[] = [
+    ...(ls.converted.length ? [`${ls.converted.length} cuenta(s) en otra moneda se convierten con tu tipo de cambio manual (estimación).`] : []),
     `Moneda: ${cur}. Se usa el saldo libre (disponible menos lo reservado en metas virtuales): ${fmtMoney(ls.free, cur)}.`,
     `Compromisos considerados hasta ${horizon} días: ${fmtMoney(oblTotal, cur)} (solo los que ya registraste).`,
     'No se cuentan ingresos futuros: la evaluación es conservadora.',

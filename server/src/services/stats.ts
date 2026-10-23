@@ -71,8 +71,14 @@ export async function accountsWithBalances(db: Db, userId: string) {
   );
   const reserved = await rows<{ account_id: string; s: number }>(db, `SELECT account_id, SUM(amount) s FROM transactions WHERE user_id=$1 AND type='goal_saving' AND to_account_id IS NULL AND status='confirmed' GROUP BY account_id`, [userId]);
   const rmap = new Map(reserved.map((r) => [r.account_id, r.s]));
+  const fx = new Map((await rows<{ currency: string; rate: number }>(db, 'SELECT currency, rate FROM fx_rates WHERE user_id=$1', [userId])).map((r) => [r.currency, r.rate]));
+  const base = (await one<{ currency: string }>(db, 'SELECT currency FROM users WHERE id=$1', [userId]))!.currency;
   return accs.map((a) => {
     const out: any = { ...a, reserved_virtual: rmap.get(a.id) ?? 0 };
+    // Conversión a la moneda principal con el tipo de cambio que defina el usuario (estimación).
+    const rate = a.currency === base ? 1 : fx.get(a.currency) ?? null;
+    out.fx_rate = a.currency === base ? null : rate;
+    out.balance_base = rate == null ? null : Math.round(a.balance * rate);
     if (a.type === 'credit_card') {
       out.owed = Math.max(-a.balance, 0);
       out.available_credit = a.credit_limit != null ? a.credit_limit - out.owed : null;

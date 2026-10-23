@@ -18,8 +18,10 @@ async function quality(db: Db, userId: string, cur: string, f: Filters, tz: stri
   const pend = await one<{ n: number }>(db, `SELECT count(*)::int n FROM transactions t WHERE t.user_id=$1 AND t.status='pending' ${w}`, params);
   if (pend!.n) { level = 'incompleto'; notes.push(`${pend!.n} movimiento(s) pendientes de revisión no están incluidos.`); }
   const accs = await accountsWithBalances(db, userId);
-  const foreign = accs.filter((a) => !a.archived && a.currency !== cur);
-  if (foreign.length) { level = 'incompleto'; notes.push(`${foreign.length} cuenta(s) en otra moneda no se convierten ni se incluyen.`); }
+  const foreign = accs.filter((a) => !a.archived && a.currency !== cur && a.balance_base == null);
+  if (foreign.length) { level = 'incompleto'; notes.push(`${foreign.length} cuenta(s) en otra moneda sin tipo de cambio no se incluyen.`); }
+  const conv = accs.filter((a) => !a.archived && a.currency !== cur && a.balance_base != null);
+  if (conv.length) { if (level === 'real') level = 'estimado'; notes.push(`${conv.length} cuenta(s) en otra moneda se convierten con tu tipo de cambio manual en saldos y patrimonio; ingresos y gastos solo cuentan la moneda principal.`); }
   const unrec = accs.filter((a) => !a.archived && !a.last_reconciliation);
   if (unrec.length) notes.push(`${unrec.length} cuenta(s) nunca se han conciliado con el banco: los saldos son los calculados por la app.`);
   const b = await baseline(db, userId, cur, tz);
@@ -78,10 +80,10 @@ export async function buildReport(db: Db, userId: string, kind: string, f: Filte
       return { ...base, kind, title: 'Tasa de ahorro', columns: [{ key: 'month', label: 'Mes' }, { key: 'income', label: 'Ingresos', type: 'money' }, { key: 'net', label: 'Ahorro neto', type: 'money' }, { key: 'rate', label: 'Tasa', type: 'pct' }], rows: s.map((m) => ({ ...m, rate: m.income > 0 ? Math.round((m.net / m.income) * 1000) / 10 : null })) };
     }
     case 'net_worth': {
-      const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && a.currency === cur);
+      const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && a.balance_base != null);
       const debts = (await debtsWithRemaining(db, userId)).filter((d) => d.status === 'open' && d.currency === cur);
       const lines = [
-        ...accs.map((a) => ({ group: a.type === 'credit_card' ? 'Pasivos: tarjetas' : 'Activos: cuentas', name: a.name, total: a.balance })),
+        ...accs.map((a) => ({ group: a.type === 'credit_card' ? 'Pasivos: tarjetas' : 'Activos: cuentas', name: a.currency === cur ? a.name : `${a.name} (${a.currency} × ${a.fx_rate})`, total: a.balance_base })),
         ...debts.filter((d) => d.direction === 'owed').map((d) => ({ group: 'Activos: por cobrar', name: d.counterparty, total: d.remaining })),
         ...debts.filter((d) => d.direction === 'owe').map((d) => ({ group: 'Pasivos: por pagar', name: d.counterparty, total: -d.remaining })),
       ];

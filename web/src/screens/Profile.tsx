@@ -26,6 +26,57 @@ function DataSheet({ kind, onClose }: { kind: 'restore' | 'wipe' | 'delete'; onC
   );
 }
 
+function TwoFactor() {
+  const { data: st } = useApi<any>('/api/me/2fa');
+  const [pw, setPw] = useState(''); const [setup, setSetup] = useState<any>(null); const [code, setCode] = useState(''); const [codes, setCodes] = useState<string[] | null>(null);
+  const [run, busy] = useAction();
+  if (!st) return null;
+  return (
+    <div>
+      <h3>Verificación en dos pasos</h3>
+      {st.enabled ? (<>
+        <p className="small"><span className="badge teal">Activa</span> Códigos de recuperación disponibles: <b>{st.recovery_remaining}</b></p>
+        {codes && <div className="card flat fade-in"><p className="small" style={{ marginTop: 0 }}><b>Guarda estos códigos en un lugar seguro.</b> Cada uno sirve una sola vez si pierdes tu teléfono. No se volverán a mostrar.</p><div className="grid cols-2" style={{ gap: 6 }}>{codes.map((c) => <code key={c}>{c}</code>)}</div></div>}
+        <Field id="d2p" label="Contraseña"><input id="d2p" type="password" className="input" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" /></Field>
+        <Field id="d2c" label="Código actual"><input id="d2c" className="input" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" /></Field>
+        <button className="btn danger" disabled={busy || !pw || code.length < 6} onClick={async () => { const r = await run(() => api.post('/api/me/2fa/disable', { password: pw, code }), 'Verificación en dos pasos desactivada'); if (r) { setPw(''); setCode(''); setCodes(null); } }}>Desactivar</button>
+      </>) : !setup ? (<>
+        <p className="small muted" style={{ marginTop: 0 }}>Protege tu acceso con un código de una app como Google Authenticator, Aegis o Authy.</p>
+        <Field id="s2p" label="Confirma tu contraseña"><input id="s2p" type="password" className="input" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" /></Field>
+        <button className="btn" disabled={busy || !pw} onClick={async () => { const r = await run(() => api.post('/api/me/2fa/setup', { password: pw })); if (r) { setSetup(r); setPw(''); } }}><Icon name="lock" size={18} />Configurar</button>
+      </>) : (
+        <div className="fade-in">
+          <p className="small" style={{ marginTop: 0 }}>1. Escanea el código con tu app de autenticación (o copia la clave).</p>
+          <div style={{ width: 180, background: '#fff', padding: 8, borderRadius: 12 }} dangerouslySetInnerHTML={{ __html: setup.qr_svg }} aria-label="Código QR para la app de autenticación" role="img" />
+          <p className="xs" style={{ overflowWrap: 'anywhere' }}>Clave: <code style={{ userSelect: 'all' }}>{setup.secret}</code></p>
+          {!st.secret_encrypted && <p className="hint warn">Este servidor no tiene APP_ENCRYPTION_KEY: el secreto se guarda sin cifrar en la base de datos. Defínela para cifrarlo.</p>}
+          <Field id="e2c" label="2. Escribe el código que muestra la app"><input id="e2c" className="input" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" /></Field>
+          <button className="btn primary" disabled={busy || code.length < 6} onClick={async () => { const r = await run(() => api.post('/api/me/2fa/enable', { code }), 'Verificación en dos pasos activada'); if (r) { setCodes(r.recovery_codes); setSetup(null); setCode(''); } }}>Activar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FxRates({ me }: { me: any }) {
+  const { data: rates } = useApi<any[]>('/api/fx');
+  const { data: accounts } = useApi<any[]>('/api/accounts');
+  const foreign = [...new Set((accounts ?? []).filter((a) => a.currency !== me.currency && !a.archived).map((a) => a.currency))];
+  const [cur, setCur] = useState(''); const [rate, setRate] = useState(''); const [run, busy] = useAction();
+  return (
+    <section className="card"><h2>Tipos de cambio</h2>
+      <p className="small muted" style={{ marginTop: 0 }}>Para sumar cuentas en otra moneda a tu saldo y patrimonio, indica cuántos {me.currency} vale 1 unidad. Es un valor manual (no se consulta en internet) y los totales se marcan como estimación. Ingresos y gastos siguen contando solo la moneda principal.</p>
+      {(rates ?? []).map((r) => <div key={r.currency} className="row between small" style={{ padding: '4px 0' }}><span>1 {r.currency} = <b className="num">{Number(r.rate)}</b> {me.currency}</span><span className="row"><span className="faint xs">{dateTime(r.updated_at)}</span><button className="btn sm ghost" onClick={() => run(() => api.del(`/api/fx/${r.currency}`), 'Tipo de cambio eliminado')}>Quitar</button></span></div>)}
+      {foreign.filter((c) => !(rates ?? []).some((r) => r.currency === c)).length > 0 && <p className="hint warn">Sin tipo de cambio (se excluyen de los totales): {foreign.filter((c) => !(rates ?? []).some((r) => r.currency === c)).join(', ')}</p>}
+      <div className="grid cols-2" style={{ gap: 0 }}>
+        <Field id="fxc" label="Moneda"><input id="fxc" className="input" maxLength={3} value={cur} onChange={(e) => setCur(e.target.value.toUpperCase())} placeholder="USD" /></Field>
+        <Field id="fxr" label={`Valor en ${me.currency}`}><input id="fxr" className="input" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="24.75" /></Field>
+      </div>
+      <button className="btn" disabled={busy || cur.length !== 3 || !Number(rate.replace(',', '.'))} onClick={async () => { const r = await run(() => api.put('/api/fx', { currency: cur, rate: Number(rate.replace(',', '.')) }), 'Tipo de cambio guardado'); if (r) { setCur(''); setRate(''); } }}>Guardar tipo de cambio</button>
+    </section>
+  );
+}
+
 export function Profile({ me }: { me: any }) {
   const [name, setName] = useState(me.display_name); const [locale, setLocale] = useState(me.locale); const [cur, setCur] = useState(me.currency); const [tz, setTz] = useState(me.timezone);
   const a = me.settings.alerts;
@@ -67,6 +118,7 @@ export function Profile({ me }: { me: any }) {
           <p className="hint">Cada hecho avisa una sola vez. Hoy las alertas aparecen dentro de la app; las notificaciones push requieren una fase posterior.</p>
         </section>
       </div>
+      <FxRates me={me} />
       <section className="card"><h2>Mis datos</h2>
         <p className="small muted" style={{ marginTop: 0 }}>Puedes llevarte todo en cualquier momento y restaurarlo después.</p>
         <div className="row wrap">
@@ -83,6 +135,7 @@ export function Profile({ me }: { me: any }) {
           <Field id="cp" label="Contraseña actual"><input id="cp" type="password" className="input" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></Field>
           <Field id="np" label="Nueva contraseña (mín. 10)"><input id="np" type="password" className="input" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" /></Field>
           <button className="btn" disabled={busy || pw.next.length < 10} onClick={async () => { const r = await run(() => api.post('/api/me/password', { current: pw.current, next: pw.next }), 'Contraseña cambiada; otras sesiones cerradas'); if (r) setPw({ current: '', next: '' }); }}>Cambiar contraseña</button>
+          <div className="hr" /><TwoFactor />
           <div className="hr" /><h3>Sesiones activas</h3>
           {sessions?.map((s, i) => <div key={i} className="xs muted" style={{ overflowWrap: 'anywhere' }}>{dateTime(s.created_at)} · {s.user_agent?.slice(0, 60) || 'dispositivo'}</div>)}
           <div className="hr" /><button className="btn" onClick={async () => { await api.post('/api/auth/logout').catch(toastError); location.reload(); }}><Icon name="logout" size={18} />Cerrar sesión</button>
@@ -92,7 +145,7 @@ export function Profile({ me }: { me: any }) {
             <li>Contraseña con scrypt; sesión en cookie HttpOnly (el token se guarda con hash).</li><li>Cada consulta se filtra por tu usuario en el servidor; hay pruebas automáticas de aislamiento.</li>
             <li>Validación de entradas, protección CSRF, límite de intentos de acceso y cabeceras de seguridad (CSP).</li><li>Los saldos se calculan desde los movimientos; nada se borra en silencio y todo cambio queda auditado.</li>
             <li>Tokens de Google cifrados en reposo (AES-256-GCM) y solo en el servidor. No guardamos claves bancarias.</li><li>Los registros técnicos no incluyen importes, comercios ni cuerpos de solicitud.</li>
-            <li><b>Pendiente:</b> verificación en dos pasos (2FA), cifrado de la base de datos en disco y notificaciones push. HTTPS depende de cómo despliegues el servidor.</li>
+            <li>Verificación en dos pasos (TOTP) opcional con códigos de recuperación; límite de intentos persistente en la base de datos.</li><li><b>Pendiente:</b> passkeys, cifrado de la base de datos en disco y notificaciones push. HTTPS depende de cómo despliegues el servidor.</li>
           </ul></section>
       </div>
       {sheet && <DataSheet kind={sheet} onClose={() => setSheet(null)} />}

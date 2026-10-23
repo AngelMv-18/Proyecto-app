@@ -5,7 +5,7 @@ import { one, pool, rows, withTx } from '../db.js';
 import { AppError, badRequest, notFound } from '../errors.js';
 import { parse, uid } from '../http.js';
 import { audit } from '../audit.js';
-import { newToken, sha256 } from '../security.js';
+import { newToken, rateLimit, sha256 } from '../security.js';
 import { authUrl, disconnect, gmailStatus, handleCallback, syncGmail } from '../services/gmail.js';
 import { parseFinancialMessage } from '../services/parser.js';
 import { ingestParsed } from '../services/ingest.js';
@@ -14,13 +14,6 @@ import { refreshAlerts } from '../services/alerts.js';
 import { getUser } from '../services/stats.js';
 
 const uuid = z.string().uuid();
-const hits = new Map<string, { n: number; t: number }>();
-function limit(key: string, max: number, windowMs = 60_000) {
-  const now = Date.now(); const h = hits.get(key);
-  if (!h || now - h.t > windowMs) { hits.set(key, { n: 1, t: now }); return; }
-  if (++h.n > max) throw new AppError(429, 'rate_limited', 'Demasiadas solicitudes');
-}
-
 export async function integrationRoutes(app: FastifyInstance) {
   // Estado honesto de cada método de detección.
   app.get('/api/integrations', async (req) => {
@@ -58,7 +51,7 @@ export async function integrationRoutes(app: FastifyInstance) {
     return { ok: true };
   });
   app.post('/api/integrations/gmail/sync', async (req) => {
-    limit(`sync:${uid(req)}`, 6);
+    await rateLimit(pool, `sync:${uid(req)}`, 6, 60);
     const r = await syncGmail(pool, uid(req));
     try { await refreshAlerts(pool, uid(req)); } catch { /* best-effort */ }
     return r;
@@ -87,7 +80,7 @@ export async function integrationRoutes(app: FastifyInstance) {
     if (!h.startsWith('Bearer nova_ing_')) throw new AppError(401, 'unauthorized', 'Token de ingesta requerido');
     const u = await one(pool, 'SELECT id, settings FROM users WHERE ingest_token_hash=$1', [sha256(h.slice(7))]);
     if (!u) throw new AppError(401, 'unauthorized', 'Token de ingesta inválido');
-    limit(`ingest:${u.id}`, 60);
+    await rateLimit(pool, `ingest:${u.id}`, 60, 60);
     const b = parse(z.object({ text: z.string().min(3).max(2000), title: z.string().max(200).optional(), app: z.string().max(80).optional(), posted_at: z.string().datetime({ offset: true }).optional(), account_id: uuid.optional() }), req.body);
     const accId = b.account_id ?? u.settings?.ingest_account_id;
     if (!accId) throw badRequest('Configura una cuenta predeterminada para la ingesta', 'no_default_account');

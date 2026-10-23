@@ -42,12 +42,17 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [name, setName] = useState('');
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const [ticket, setTicket] = useState<string | null>(null); const [code, setCode] = useState('');
   useEffect(() => { if (st && !st.has_users) setMode('register'); }, [st]);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
     try {
       if (mode === 'register') await api.post('/api/auth/register', { email, password: pw, display_name: name || 'Yo' });
-      else await api.post('/api/auth/login', { email, password: pw });
+      else if (ticket) await api.post('/api/auth/login/2fa', { ticket, code });
+      else {
+        const r = await api.post('/api/auth/login', { email, password: pw });
+        if (r.two_factor_required) { setTicket(r.ticket); setBusy(false); return; }
+      }
       onDone();
     } catch (er) { setErr(er instanceof ApiError ? er.message : 'Error inesperado'); } finally { setBusy(false); }
   };
@@ -57,7 +62,15 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
         <div style={{ marginBottom: 18 }}><Logo size={44} /></div>
         <h1>{mode === 'login' ? 'Bienvenido de nuevo' : 'Crea tu centro financiero'}</h1>
         <p className="muted" style={{ margin: '6px 0 18px' }}>{mode === 'login' ? 'Inicia sesión para ver tu dinero.' : 'Tus datos se guardan en tu propio servidor.'}</p>
-        {loading ? <LoadingBlock /> : (
+        {ticket ? (
+          <form onSubmit={submit}>
+            <p className="muted small" style={{ marginTop: 0 }}>Escribe el código de 6 dígitos de tu app de autenticación, o uno de tus códigos de recuperación.</p>
+            <Field id="otp" label="Código de verificación"><input id="otp" className="input amount-input" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus required /></Field>
+            {err && <p className="err" role="alert">{err}</p>}
+            <button className="btn primary block" disabled={busy}>{busy ? 'Verificando…' : 'Verificar'}</button>
+            <button type="button" className="btn ghost block" style={{ marginTop: 8 }} onClick={() => { setTicket(null); setCode(''); setErr(''); }}>Volver</button>
+          </form>
+        ) : loading ? <LoadingBlock /> : (
           <form onSubmit={submit}>
             {mode === 'register' && <Field id="name" label="Tu nombre"><input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required /></Field>}
             <Field id="email" label="Correo electrónico"><input id="email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></Field>

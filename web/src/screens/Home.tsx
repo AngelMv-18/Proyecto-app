@@ -137,12 +137,13 @@ export function Home({ me }: { me: any }) {
             <div className="list">{d.accounts.map((a: any) => (
               <div className="item" key={a.id} style={{ cursor: 'default' }}><span className="avatar"><Icon name={a.type === 'cash' ? 'coin' : a.type === 'credit_card' || a.type === 'debit_card' ? 'card' : 'wallet'} /></span>
                 <div className="grow"><div className="t">{a.name}</div><div className="s">{ACCOUNT_TYPES[a.type]}{a.type === 'credit_card' && a.available_credit != null ? ` · crédito disponible ${money(a.available_credit, a.currency)}` : ''}</div></div>
-                <div className={`amt ${a.balance < 0 ? 'neg' : ''}`}>{money(a.balance, a.currency)}</div></div>
+                <div style={{ textAlign: 'right' }}><div className={`amt ${a.balance < 0 ? 'neg' : ''}`}>{money(a.balance, a.currency)}</div>{a.currency !== d.currency && <div className="xs faint">{a.balance_base != null ? `≈ ${money(a.balance_base)}` : 'sin tipo de cambio'}</div>}</div></div>
             ))}</div>
             <div className="hr" />
             <div className="row between small"><span className="muted">Patrimonio neto estimado</span><b className="num">{money(d.net_worth)}</b></div>
             <div className="row between small"><span className="muted">Por cobrar / por pagar</span><span className="num">{money(d.receivable)} / {money(d.payable)}</span></div>
-            {d.foreign_accounts > 0 && <p className="hint">{d.foreign_accounts} cuenta(s) en otra moneda no se suman aquí.</p>}
+            {d.foreign_accounts > 0 && <p className="hint">{d.foreign_accounts} cuenta(s) en otra moneda sin tipo de cambio no se suman aquí (Perfil → Tipos de cambio).</p>}
+            {d.converted_accounts > 0 && <p className="hint">Incluye {d.converted_accounts} cuenta(s) en otra moneda convertidas con tu tipo de cambio manual (estimación).</p>}
           </section>
 
           <section className="card" aria-label="Próximos compromisos">
