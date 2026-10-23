@@ -246,6 +246,6 @@ test('compartir: el administrador crea un enlace y un invitado se registra con Ã
   await g.getByRole('button', { name: 'Crear cuenta' }).click();
   await expect(g.getByText('Empecemos por tus cuentas')).toBeVisible();
   await guest.close();
-  await page.reload();
+  await page.goto('/#/compartir');
   await expect(page.getByText(`Se unieron: ${guestName}`)).toBeVisible();
 });
