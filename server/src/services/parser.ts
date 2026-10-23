@@ -85,7 +85,8 @@ export function parseFinancialMessage(input: { subject?: string; body: string; f
 
   const isIncome = INCOME_KW.test(t);
   const isExpense = EXPENSE_KW.test(t);
-  if (NOISE.test(t) && !isIncome && !isExpense) return { kind: 'ignored', reason: 'Parece publicidad o aviso general' };
+  const strong = /(aprobad|se realizo|realizada|pagaste|enviaste|recibiste|acreditad|deposito|retiro|cargo|debito|consumo de)/.test(t) || /(referencia|autorizacion)\s*[:#]?\s*[a-z0-9]{4}/.test(t);
+  if (NOISE.test(t) && !strong) return { kind: 'ignored', reason: 'Parece publicidad o aviso general' };
   if (!isIncome && !isExpense) return { kind: 'ignored', reason: 'No se reconoce como movimiento (compra, pago, depósito...)' };
   const type: 'income' | 'expense' = isIncome && !/(compra|consumo|pagaste|enviaste|retiro)/.test(t) ? 'income' : isExpense ? 'expense' : 'income';
 

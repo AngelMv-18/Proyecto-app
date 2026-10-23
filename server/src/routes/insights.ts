@@ -7,7 +7,7 @@ import { askNova, aiStatus } from '../services/ai.js';
 import { dashboard, evaluatePurchase } from '../services/insights.js';
 import { refreshAlerts } from '../services/alerts.js';
 import { REPORT_KINDS, buildReport, esc, reportToCsv, reportToHtml } from '../services/reports.js';
-import { getUser, listTransactions } from '../services/stats.js';
+import { budgetsStatus, categoryBreakdown, dailyBalance, getUser, incomeExpense, listTransactions, monthlySeries, natureBreakdown, periodBounds } from '../services/stats.js';
 import { toFilters } from './finance.js';
 
 const uuid = z.string().uuid();
@@ -16,6 +16,54 @@ export async function insightRoutes(app: FastifyInstance) {
   app.get('/api/dashboard', async (req) => {
     try { await refreshAlerts(pool, uid(req)); } catch { /* best-effort */ }
     return dashboard(pool, uid(req));
+  });
+
+  // ---------- Análisis filtrable (fechas, cuenta, categoría, método de pago) ----------
+  app.get('/api/analysis', async (req) => {
+    const q = parse(z.object({ from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), account_id: uuid.optional(), category_id: uuid.optional(), payment_method: z.string().max(40).optional() }), req.query);
+    const u = await getUser(pool, uid(req));
+    const cur = u.currency;
+    const month = await periodBounds(pool, u.timezone, 'month');
+    const f = { ...q, from: q.from ?? month.start, to: q.to ?? month.end };
+    const [summary, categories, monthly] = await Promise.all([incomeExpense(pool, uid(req), cur, f), categoryBreakdown(pool, uid(req), cur, f), monthlySeries(pool, uid(req), cur, u.timezone, 6)]);
+    const extraFor = (params: any[]) => {
+      let extra = '';
+      if (q.account_id) { params.push(q.account_id); extra += ` AND t.account_id=$${params.length}`; }
+      if (q.category_id) { params.push(q.category_id); extra += ` AND (t.category_id=$${params.length} OR t.category_id IN (SELECT id FROM categories WHERE parent_id=$${params.length}))`; }
+      if (q.payment_method) { params.push(q.payment_method); extra += ` AND t.payment_method=$${params.length}`; }
+      return extra;
+    };
+    const dp: any[] = [uid(req), cur, u.timezone, f.from, f.to];
+    const daily = await rows(pool, `SELECT (t.occurred_at AT TIME ZONE $3)::date::text AS day,
+        (COALESCE(SUM(t.amount) FILTER (WHERE t.type='expense' AND t.debt_id IS NULL),0) - COALESCE(SUM(t.amount) FILTER (WHERE t.type='refund'),0))::bigint AS expense,
+        COALESCE(SUM(t.amount) FILTER (WHERE t.type='income' AND t.debt_id IS NULL),0)::bigint AS income
+      FROM transactions t WHERE t.user_id=$1 AND t.status='confirmed' AND t.currency=$2 AND t.occurred_at >= $4 AND t.occurred_at < $5 ${extraFor(dp)} GROUP BY 1 ORDER BY 1`, dp);
+    const wp: any[] = [uid(req), cur, u.timezone];
+    const weekly = await rows(pool, `SELECT to_char(date_trunc('week', t.occurred_at AT TIME ZONE $3),'YYYY-MM-DD') AS week,
+        (COALESCE(SUM(t.amount) FILTER (WHERE t.type='expense' AND t.debt_id IS NULL),0) - COALESCE(SUM(t.amount) FILTER (WHERE t.type='refund'),0))::bigint AS expense
+      FROM transactions t WHERE t.user_id=$1 AND t.status='confirmed' AND t.currency=$2 AND t.occurred_at >= now() - interval '8 weeks' ${extraFor(wp)} GROUP BY 1 ORDER BY 1`, wp);
+    const methods = await rows(pool, `SELECT DISTINCT payment_method FROM transactions WHERE user_id=$1 AND payment_method IS NOT NULL ORDER BY 1`, [uid(req)]);
+    const fromDay = (await pool.query(`SELECT ($1::timestamptz AT TIME ZONE $2)::date::text d`, [f.from, u.timezone])).rows[0].d;
+    const toDay = (await pool.query(`SELECT (($1::timestamptz - interval '1 second') AT TIME ZONE $2)::date::text d`, [f.to, u.timezone])).rows[0].d;
+    const balance = fromDay <= toDay ? await dailyBalance(pool, uid(req), cur, u.timezone, fromDay, toDay, q.account_id) : [];
+    return { currency: cur, period: { from: f.from, to: f.to }, summary, categories, daily, weekly, monthly, balance, payment_methods: methods.map((m: any) => m.payment_method) };
+  });
+
+  app.get('/api/budgets/insights', async (req) => {
+    const u = await getUser(pool, uid(req));
+    const cur = u.currency;
+    const a = await periodBounds(pool, u.timezone, 'month'), b = await periodBounds(pool, u.timezone, 'month', -1);
+    const elapsed = Math.max((Date.now() - new Date(a.start).getTime()) / (new Date(a.end).getTime() - new Date(a.start).getTime()), 0.05);
+    const [nature, ca, cb, budgets] = await Promise.all([natureBreakdown(pool, uid(req), cur, { from: a.start, to: a.end }), categoryBreakdown(pool, uid(req), cur, { from: a.start, to: a.end }), categoryBreakdown(pool, uid(req), cur, { from: b.start, to: b.end }), budgetsStatus(pool, uid(req), cur, u.timezone)]);
+    // Comparar contra el mes anterior al mismo punto del mes (ritmo proyectado), no contra el mes completo.
+    const increases = ca.map((c) => ({ category: c.name, current: c.total, projected: Math.round(c.total / elapsed), previous: cb.find((x) => x.name === c.name)?.total ?? 0 }))
+      .filter((c) => c.previous > 0 && c.projected > c.previous * 1.3 && c.projected - c.previous > 5000);
+    const recommendations: string[] = [];
+    for (const x of budgets.filter((x) => x.period === 'monthly' && x.projected > x.amount)) recommendations.push(`${x.category_name}: al ritmo actual terminarías el mes en ${Math.round(x.projected / 100)} ${cur} (límite ${Math.round(x.amount / 100)}). Reduce ~${Math.round((x.projected - x.amount) / 100)} ${cur} o ajusta el límite.`);
+    for (const i of increases) recommendations.push(`${i.category}: ritmo proyectado ${Math.round(((i.projected / i.previous) - 1) * 100)}% mayor que el mes anterior.`);
+    const slack = budgets.filter((x) => x.period === 'monthly' && x.pct < 40 && elapsed > 0.6);
+    for (const x of slack) recommendations.push(`${x.category_name} lleva solo ${x.pct}% con ${Math.round(elapsed * 100)}% del mes: podrías mover presupuesto a otra categoría.`);
+    return { elapsed: Math.round(elapsed * 100), nature, increases, recommendations };
   });
 
   // ---------- Notificaciones ----------
