@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { qs } from '../api';
-import { dateShort, money, ymd } from '../format';
+import { dateShort, money, todayKey, ymd } from '../format';
 import { Icon } from '../icons';
 import { ErrorBlock, Field, LoadingBlock, nav, useApi, useRoute } from '../ui';
 
@@ -42,8 +42,7 @@ export function Reports() {
 
 function ReportsMain() {
   const [kind, setKind] = useState('income_statement');
-  const first = new Date(); first.setDate(1);
-  const [from, setFrom] = useState(first.toISOString().slice(0, 10)); const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [from, setFrom] = useState(todayKey().slice(0, 8) + '01'); const [to, setTo] = useState(todayKey());
   const params = { from: from ? new Date(from + 'T00:00:00').toISOString() : undefined, to: to ? new Date(new Date(to + 'T00:00:00').getTime() + 86400000 - 1000).toISOString() : undefined };
   const { data: r, loading, error, reload } = useApi<any>(`/api/reports/${kind}${qs(params)}`);
   const cell = (c: any, v: any) => c.type === 'money' ? money(v) : c.type === 'pct' ? (v == null ? '—' : `${v}%`) : c.type === 'date' && v ? ymd(String(v).slice(0, 10)) : (v ?? '—');

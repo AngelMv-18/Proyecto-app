@@ -20,7 +20,7 @@
 - **Dependencias**: `npm audit` sin vulnerabilidades conocidas a la fecha de esta fase (se actualizó `@fastify/static` por avisos de recorrido de rutas).
 
 ## Pendiente / limitaciones (sé honesto contigo mismo)
-- Sin **passkeys/WebAuthn** todavía (la 2FA es por código TOTP).
+- El **bloqueo con huella** usa WebAuthn (llave del propio teléfono) y lo hace cumplir el servidor; el inicio de sesión con passkey (sin contraseña) aún no existe: la 2FA es por código TOTP.
 - La base de datos **no está cifrada en disco** por la app (usa cifrado de disco/volumen en tu hosting).
 - **HTTPS** lo aporta tu despliegue (proxy); la app no lo termina.
 - Los comprobantes se guardan en la base de datos (≤3 MB cada uno) sin análisis antivirus.

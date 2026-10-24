@@ -69,6 +69,9 @@ export function Share() {
         <ul className="small muted" style={{ paddingLeft: 18, display: 'grid', gap: 5, margin: 0 }}>
           <li>Cada persona ve solo sus datos dentro de la app, pero tú, como dueño del servidor y de la base de datos (Supabase), podrías técnicamente acceder a ellos. Avísales que es una versión de prueba.</li>
           <li>Pídeles que no usen contraseñas que ya usen en otros sitios y que no registren datos que no quieran compartir en una prueba.</li>
+          <li><b>Gmail:</b> mientras la conexión de Google esté en modo «Prueba», solo pueden vincular su correo las personas que agregues como <b>usuarios de prueba</b> en <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noreferrer">Google Cloud → Público</a> (máx. 100). Agrega su Gmail antes de enviarles el enlace; Google les pedirá volver a vincular cada 7 días.</li>
+          <li>Para que cada aviso del banco caiga en la tarjeta correcta, que escriban los <b>últimos 4 dígitos</b> al crear cada tarjeta o cuenta.</li>
+          <li>Pídeles que usen <b>Perfil → Comentarios y sugerencias</b> para contarte qué falla o qué mejorarían; te llegará un aviso.</li>
           <li>El plan gratuito de Render y Supabase está pensado para pocos usuarios: bien para un grupo de prueba.</li>
         </ul>
       </section>

@@ -18,6 +18,7 @@ import { Integrations } from './screens/Integrations';
 import { Review } from './screens/Review';
 import { Appearance } from './screens/Appearance';
 import { Share } from './screens/Share';
+import { Feedback } from './screens/Feedback';
 import { Notifications, SearchSheet } from './screens/Misc';
 import { LockScreen } from './components/Lock';
 import { loadBrand } from './brand';
@@ -39,7 +40,7 @@ const MAIN = [
 ];
 const MORE = [
   { to: '/cuentas', label: 'Cuentas', icon: 'wallet' }, { to: '/metas', label: 'Metas', icon: 'target' }, { to: '/deudas', label: 'Deudas', icon: 'scale' },
-  { to: '/recurrentes', label: 'Recurrentes', icon: 'repeat' }, { to: '/informes', label: 'Informes', icon: 'chart' }, { to: '/integraciones', label: 'Integraciones', icon: 'plug' }, { to: '/apariencia', label: 'Apariencia', icon: 'spark' }, { to: '/compartir', label: 'Compartir app', icon: 'send' },
+  { to: '/recurrentes', label: 'Recurrentes', icon: 'repeat' }, { to: '/informes', label: 'Informes', icon: 'chart' }, { to: '/integraciones', label: 'Integraciones', icon: 'plug' }, { to: '/apariencia', label: 'Apariencia', icon: 'spark' }, { to: '/compartir', label: 'Compartir app', icon: 'send' }, { to: '/comentarios', label: 'Comentarios', icon: 'edit' },
 ];
 
 const GOOGLE_ERRORS: Record<string, string> = {
@@ -152,6 +153,8 @@ function Shell({ me }: { me: any }) {
   const base = '/' + (path.split('/')[1] ?? '');
   const isMain = MAIN.some((m) => m.to === base || (m.to === '/' && path === '/'));
 
+  // Pantalla anterior, para adjuntarla a un comentario ("dónde pasó").
+  useEffect(() => () => { try { sessionStorage.setItem('nova_prev_route', path); } catch { /* sin almacenamiento */ } }, [path]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearch(true); } };
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
@@ -178,6 +181,7 @@ function Shell({ me }: { me: any }) {
     case '/revision': screen = <Review />; break;
     case '/apariencia': screen = <Appearance />; break;
     case '/compartir': screen = <Share />; break;
+    case '/comentarios': screen = <Feedback />; break;
     case '/invitacion': screen = <InviteWhileLoggedIn me={me} />; break;
     default: screen = <div className="empty"><h3>Pantalla no encontrada</h3><button className="btn" onClick={() => nav('/')}>Ir al inicio</button></div>;
   }

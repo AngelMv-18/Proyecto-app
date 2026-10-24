@@ -14,7 +14,7 @@ export function Notifications({ onClose }: { onClose: () => void }) {
           <button className="btn sm ghost" style={{ marginBottom: 8 }} onClick={() => api.post('/api/notifications/read-all').then(invalidate).catch(toastError)}>Marcar todas como leídas</button>
           <div className="stack" style={{ gap: 8 }}>{data.map((n) => (
             <div key={n.id} className={`alert ${n.severity}`} style={{ opacity: n.read_at ? 0.6 : 1 }}><Icon name={n.severity === 'info' ? 'info' : 'warn'} size={20} />
-              <div className="grow"><b className="small">{n.title}</b><div className="small muted">{n.body}</div><div className="xs faint">{dateTime(n.created_at)}</div></div>
+              <div className="grow">{n.data?.route ? <button className="link small" style={{ padding: 0, background: 'none', border: 0, color: 'inherit', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }} onClick={() => { onClose(); nav(n.data.route); if (!n.read_at) api.post(`/api/notifications/${n.id}/read`).then(invalidate).catch(() => {}); }}>{n.title} ›</button> : <b className="small">{n.title}</b>}<div className="small muted">{n.body}</div><div className="xs faint">{dateTime(n.created_at)}</div></div>
               {!n.read_at && <button className="iconbtn" style={{ width: 36, height: 36 }} aria-label="Marcar como leída" onClick={() => api.post(`/api/notifications/${n.id}/read`).then(invalidate).catch(toastError)}><Icon name="check" size={16} /></button>}</div>))}</div>
         </>)}
     </Sheet>

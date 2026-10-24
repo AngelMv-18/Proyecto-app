@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { ACCOUNT_TYPES, fromMinor, money, toMinor, ymd } from '../format';
+import { ACCOUNT_TYPES, fromMinor, money, toMinor, todayKey, ymd } from '../format';
 import { Icon } from '../icons';
 import { Empty, ErrorBlock, Field, LoadingBlock, Sheet, confirmDialog, useAction, useApi, useRoute } from '../ui';
 import { BANKS, bankByCode } from '../banks';
 import { CardFace, WalletStack } from '../components/Wallet';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayKey;
 
 function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
   const [name, setName] = useState(a?.name ?? ''); const [type, setType] = useState(a?.type ?? 'debit_card'); const [cur, setCur] = useState(a?.currency ?? '');
@@ -17,6 +17,8 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
   const [c1, setC1] = useState(initial[0] || '#1A2029'); const [c2, setC2] = useState(initial[1] || '#C6FF3D');
   const [run, busy] = useAction();
   const isCard = type === 'debit_card' || type === 'credit_card';
+  // Los últimos 4 dígitos también sirven en cuentas bancarias: los avisos por correo los traen ("cuenta *****6480").
+  const hasDigits = isCard || type === 'bank' || type === 'savings';
   const pickBank = (code: string) => {
     setBank(code);
     const b = bankByCode(code);
@@ -24,14 +26,14 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
     if (b?.kind === 'cash') setType('cash');
     if (b?.kind === 'wallet') setType('wallet');
   };
-  const preview = { name: name || 'Mi tarjeta', type, currency: cur || 'HNL', balance: toMinor(open) ?? 0, available_credit: type === 'credit_card' && limit ? (toMinor(limit) ?? 0) + Math.min(toMinor(open) ?? 0, 0) : null, owed: 0, bank_code: bank || null, card_network: isCard ? net || null : null, last4: isCard && last4.length === 4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
+  const preview = { name: name || 'Mi tarjeta', type, currency: cur || 'HNL', balance: toMinor(open) ?? 0, available_credit: type === 'credit_card' && limit ? (toMinor(limit) ?? 0) + Math.min(toMinor(open) ?? 0, 0) : null, owed: 0, bank_code: bank || null, card_network: isCard ? net || null : null, last4: hasDigits && last4.length === 4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
   const save = async () => {
     const fe: Record<string, string> = {};
     if (!name.trim()) fe.name = 'Ponle un nombre';
     const ob = open.trim() ? toMinor(open) : 0; if (ob == null) fe.opening_balance = 'Importe no válido';
     if (last4 && !/^\d{4}$/.test(last4)) fe.last4 = 'Escribe solo los últimos 4 dígitos';
     setErrs(fe); if (Object.keys(fe).length) return;
-    const look = { bank_code: bank || null, card_network: isCard ? net || null : null, last4: isCard && last4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
+    const look = { bank_code: bank || null, card_network: isCard ? net || null : null, last4: hasDigits && last4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
     const body: any = { name: name.trim(), opening_balance: ob, opening_date: date, ...look, ...(type === 'credit_card' ? { credit_limit: limit ? toMinor(limit) : null } : {}) };
     const r = await run(() => a ? api.patch(`/api/accounts/${a.id}`, body) : api.post('/api/accounts', { ...body, type, ...(cur ? { currency: cur.toUpperCase() } : {}) }), a ? 'Cuenta actualizada' : 'Cuenta creada');
     if (r) onClose();
@@ -53,10 +55,10 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
         <span className="hint">Colores aproximados de cada marca (sin logotipos). Puedes personalizarlos abajo.</span>
       </div>
       <Field id="an" label="Nombre" error={errs.name}><input id="an" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej.: BAC Débito, Ficohsa Crédito" /></Field>
-      {isCard && (
+      {hasDigits && (
         <div className="grid cols-2" style={{ gap: 0 }}>
-          <div className="field"><span className="lbl">Red</span><div className="chips" role="group" aria-label="Red de la tarjeta">{[['visa', 'Visa'], ['mastercard', 'Mastercard'], ['amex', 'AMEX'], ['', 'Ninguna']].map(([k, l]) => <button type="button" key={k} className="chip" aria-pressed={net === k} onClick={() => setNet(k)}>{l}</button>)}</div></div>
-          <Field id="al4" label="Últimos 4 dígitos (opcional)" error={errs.last4} hint="Nunca escribas el número completo."><input id="al4" className="input" inputMode="numeric" maxLength={4} value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, ''))} placeholder="1824" /></Field>
+          {isCard && <div className="field"><span className="lbl">Red</span><div className="chips" role="group" aria-label="Red de la tarjeta">{[['visa', 'Visa'], ['mastercard', 'Mastercard'], ['amex', 'AMEX'], ['', 'Ninguna']].map(([k, l]) => <button type="button" key={k} className="chip" aria-pressed={net === k} onClick={() => setNet(k)}>{l}</button>)}</div></div>}
+          <Field id="al4" label="Últimos 4 dígitos (recomendado)" error={errs.last4} hint={`Así los avisos del banco por correo se registran en ${isCard ? 'esta tarjeta' : 'esta cuenta'}. Nunca escribas el número completo.`}><input id="al4" className="input" inputMode="numeric" maxLength={4} value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, ''))} placeholder="1824" /></Field>
         </div>
       )}
       <label className="switch"><span>Personalizar colores</span><input type="checkbox" role="switch" checked={custom} onChange={(e) => setCustom(e.target.checked)} /></label>

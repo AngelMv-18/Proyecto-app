@@ -25,6 +25,11 @@ de una conexión NFC. NOVA **no finge** esta integración: las compras con Googl
 3. Al volver, NOVA elige sola la cuenta destino (moneda base primero; débito, banco, crédito, billetera), hace la primera revisión en segundo plano y luego **revisa sola cada hora** (programador del servidor). Todo llega a *Revisión*; nada afecta saldos sin confirmar.
 4. La cuenta destino se cambia con un selector; remitentes y etiqueta son filtros **opcionales** en «Opciones avanzadas».
 
+## Gmail: qué correos se leen y cómo se asignan
+- Búsqueda: remitentes y asuntos típicos de bancos y billeteras de Honduras (BAC, Atlántida, Ficohsa, Banpaís, Occidente, Davivienda, LAFISE, Banrural, Promerica, Azteca, Cuscatlán, Tigo Money, TENGO…), **sin** Promociones ni Redes sociales. Primera revisión: 30 días (hasta 150 correos); después, solo lo nuevo.
+- Formatos reconocidos y probados con la estructura real de los avisos de **BAC Credomatic**: tarjeta («MASTERCARD 2001», tabla Comercio / Monto / Horario) y cuenta («cuenta en LPS, número *****6480», Fecha / Monto enviado). Para otros bancos se usa el lector general; conviene enviar ejemplos reales para ajustarlo.
+- Cada aviso va a la cuenta o tarjeta con los **mismos últimos 4 dígitos**; si no hay, a la única de ese banco en esa moneda; si no, a la cuenta destino elegida. Lo anterior a la fecha de saldo inicial de la cuenta no se registra (ya está incluido en ese saldo).
+
 ## Gmail: política y límites reales (verifica en la consola de Google, cambia con el tiempo)
 - `gmail.readonly` es un alcance **restringido**: para publicar la app a terceros Google exige verificación y, si guardas datos en servidores, una evaluación de seguridad anual de pago. Para **uso personal** puedes dejarla en modo *Pruebas* con tu cuenta como usuario de prueba, pero en ese modo **el refresh token caduca a los 7 días** (hay que reconectar); en producción sin verificar verás una pantalla de advertencia y un tope de usuarios.
 - Alternativa sin permisos restringidos: reenviar los avisos a una etiqueta/alias y usar C o D.

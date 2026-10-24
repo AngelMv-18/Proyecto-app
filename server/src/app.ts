@@ -21,6 +21,7 @@ import { lockRoutes, lockPrefs } from './routes/lock.js';
 import { brandRoutes } from './routes/brand.js';
 import { googleRoutes } from './routes/google.js';
 import { inviteRoutes } from './routes/invites.js';
+import { feedbackRoutes } from './routes/feedback.js';
 
 // Rutas permitidas con la sesión BLOQUEADA (para mostrar y resolver la pantalla de huella).
 const LOCK_EXEMPT = new Set(['/api/lock/status', '/api/lock/unlock/options', '/api/lock/unlock/verify', '/api/lock/unlock/password', '/api/auth/logout', '/api/appearance']);
@@ -104,6 +105,7 @@ export async function buildApp(opts: { fetch?: typeof fetch } = {}) {
   await app.register(lockRoutes);
   await app.register(brandRoutes);
   await app.register(inviteRoutes);
+  await app.register(feedbackRoutes);
   await app.register(googleRoutes, { fetch: opts.fetch });
 
   // Interfaz web compilada (despliegue de un solo proceso).

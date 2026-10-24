@@ -250,3 +250,14 @@ test('compartir: el administrador crea un enlace y un invitado se registra con �
   await page.goto('/#/compartir');
   await expect(page.getByText(`Se unieron: ${guestName}`)).toBeVisible();
 });
+
+test('comentarios: un usuario envía un comentario y lo ve en su lista', async ({ page }) => {
+  await register(page);
+  await page.goto('/#/comentarios');
+  await page.getByRole('button', { name: 'Tengo una idea' }).click();
+  await page.getByLabel('¿Qué te gustaría que hiciera la app?').fill('Me gustaría ver mis gastos por semana');
+  await page.getByRole('radio', { name: '5 de 5' }).click();
+  await page.getByRole('button', { name: 'Enviar' }).click();
+  await expect(page.getByText('¡Gracias! Tu comentario llegó al administrador.')).toBeVisible();
+  await expect(page.getByText('Me gustaría ver mis gastos por semana')).toBeVisible();
+});

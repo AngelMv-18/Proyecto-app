@@ -143,6 +143,7 @@ export function Profile({ me }: { me: any }) {
         <Link to="/recurrentes" icon="repeat" label="Pagos recurrentes" sub="Suscripciones, facturas y servicios" /><Link to="/informes" icon="chart" label="Informes" sub="Estados, flujo de caja y exportación" /><Link to="/integraciones" icon="plug" label="Integraciones" sub="Vincular tu Gmail" /><Link to="/revision" icon="check" label="Revisión de movimientos" sub="Detectados e importados" />
         <Link to="/apariencia" icon="spark" label="Apariencia y bloqueo con huella" sub="Colores, nombre, logotipo y desbloqueo biométrico" />
         <Link to="/compartir" icon="send" label="Compartir app" sub="Invita a amigos y familiares a probarla" />
+        <Link to="/comentarios" icon="edit" label="Comentarios y sugerencias" sub="Cuéntanos qué falla o qué te gustaría" />
       </div></section>
       <div className="grid cols-2">
         <section className="card"><h2>Formato y región</h2>

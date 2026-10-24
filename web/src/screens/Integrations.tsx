@@ -61,7 +61,7 @@ function GmailCard({ g, accounts }: { g: any; accounts: any[] }) {
         {g.configured && !open.length && <p className="small muted">Primero <a href="#/cuentas?nueva=1">crea una cuenta o tarjeta</a> donde registrar lo que se detecte.</p>}
       </>) : (<>
         <p className="small muted"><b>{g.account_email ?? 'Tu Gmail'}</b> · revisa automáticamente cada hora · última revisión: {g.last_sync_at ? dateTime(g.last_sync_at) : 'en curso…'}</p>
-        <Field id="ga" label="Registrar lo detectado en"><select id="ga" className="input" value={g.default_account?.id ?? ''} disabled={busy} onChange={(e) => run(() => api.patch('/api/integrations/gmail/account', { default_account_id: e.target.value }), 'Cuenta actualizada')}>
+        <Field id="ga" label="Si no se reconoce la tarjeta, registrar en" hint="Cada aviso va a la tarjeta o cuenta con sus mismos últimos 4 dígitos (agrégalos en Cuentas → Editar). Lo anterior a la fecha de inicio de una cuenta no se registra: ya está en su saldo inicial."><select id="ga" className="input" value={g.default_account?.id ?? ''} disabled={busy} onChange={(e) => run(() => api.patch('/api/integrations/gmail/account', { default_account_id: e.target.value }), 'Cuenta actualizada')}>
           {!g.default_account && <option value="">Elegir cuenta…</option>}{open.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
         <div className="row wrap">
           <button className="btn primary" disabled={busy} onClick={async () => { const r = await run(() => api.post('/api/integrations/gmail/sync')); if (r) toast(r.created ? `${r.created} movimiento(s) nuevo(s) por revisar` : `Revisé ${r.scanned} correo(s): nada nuevo`, 'ok'); }}>Revisar ahora</button>

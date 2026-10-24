@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { FREQ_LABEL, fromMinor, money, toMinor, ymd } from '../format';
+import { FREQ_LABEL, fromMinor, money, toMinor, todayKey, ymd } from '../format';
 import { Icon } from '../icons';
 import { Empty, ErrorBlock, Field, LoadingBlock, Sheet, confirmDialog, useAction, useApi } from '../ui';
 
@@ -10,7 +10,7 @@ const MULT: Record<string, number> = { weekly: 52 / 12, biweekly: 26 / 12, month
 function RecForm({ r, preset, accounts, cats, debts, onClose }: { r?: any; preset?: any; accounts: any[]; cats: any[]; debts: any[]; onClose: () => void }) {
   const s = r ?? preset ?? {};
   const [name, setName] = useState(s.name ?? ''); const [kind, setKind] = useState(s.kind ?? 'subscription'); const [amount, setAmount] = useState(s.amount ? fromMinor(s.amount) : '');
-  const [freq, setFreq] = useState(s.frequency ?? 'monthly'); const [next, setNext] = useState(s.next_date ?? new Date().toISOString().slice(0, 10)); const [acc, setAcc] = useState(s.account_id ?? accounts[0]?.id ?? '');
+  const [freq, setFreq] = useState(s.frequency ?? 'monthly'); const [next, setNext] = useState(s.next_date ?? todayKey()); const [acc, setAcc] = useState(s.account_id ?? accounts[0]?.id ?? '');
   const [cat, setCat] = useState(s.category_id ?? ''); const [debt, setDebt] = useState(s.debt_id ?? ''); const [errs, setErrs] = useState<Record<string, string>>({}); const [run, busy] = useAction();
   const save = async () => {
     const m = toMinor(amount); const fe: Record<string, string> = {};
@@ -45,7 +45,7 @@ export function Recurring() {
   if (error && !rec) return <ErrorBlock error={error} retry={reload} />;
   if (loading && !rec) return <LoadingBlock rows={4} />;
   const monthly = rec!.filter((r) => r.active).reduce((s, r) => s + r.amount * MULT[r.frequency], 0);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKey();
   return (
     <div className="stack">
       <div className="row between"><h1>Pagos recurrentes</h1><button className="btn primary sm" onClick={() => setEdit('new')}><Icon name="plus" size={16} />Nuevo</button></div>

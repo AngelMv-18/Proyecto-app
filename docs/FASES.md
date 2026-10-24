@@ -47,8 +47,11 @@ Verificación y límites: el SDK de Android no se puede descargar aquí (la red 
 Archivos: `android/**`, `.github/workflows/{android,ci}.yml`, `server/src/{app.ts,routes/integrations.ts}`, `server/test/integrations.test.ts`, `web/src/screens/Integrations.tsx`, `web/playwright.config.ts`, `docs/INTEGRACIONES.md`.
 Cómo probar: descarga el artefacto `nova-captura-apk` de la ejecución de GitHub Actions, instálalo, pega la URL HTTPS de tu servidor y el token (NOVA → Integraciones → Notificaciones y SMS), pulsa “Probar conexión”, concede el acceso a notificaciones y marca la app de tu banco.
 
+## Etapa de prueba con familiares
+- **Comentarios y sugerencias** (Perfil): cada persona envía problemas o ideas con calificación; el administrador recibe un aviso, los ve en una bandeja y puede responder.
+
 ## Lo que falta
-- Probar Gmail con credenciales reales y ajustar el parser a los correos/SMS reales de tus bancos.
+- Gmail probado con credenciales reales; lector ajustado a los avisos de BAC. Falta: ejemplos reales de otros bancos (Atlántida, Ficohsa, Banpaís…).
 - Passkeys y cifrado de disco.
 - Probar el envío push real en un teléfono (requiere HTTPS y claves VAPID).
 - Probar NOVA Captura en un teléfono real con los avisos de tus bancos y ajustar el parser a sus textos.
