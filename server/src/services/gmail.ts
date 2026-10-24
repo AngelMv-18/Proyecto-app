@@ -9,7 +9,12 @@ import { newOAuthState, takeOAuthState } from './google.js';
 
 // Solo lectura. No se solicitan permisos de envío ni de modificación.
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
-export const DEFAULT_QUERY = 'newer_than:30d (compra OR pago OR consumo OR transferencia OR deposito OR retiro OR débito)';
+// Avisos de bancos y billeteras de Honduras: por remitente o por palabras típicas de una notificación de movimiento.
+// Se excluyen Promociones y Redes sociales, donde llegan las ofertas que también dicen "compra" o "pago".
+const BANK_SENDERS = ['bac', 'baccredomatic', 'credomatic', 'bancatlan', 'atlantida', 'ficohsa', 'banpais', 'bancodeoccidente', 'davivienda', 'lafise', 'banrural', 'promerica', 'bancoazteca', 'cuscatlan', 'bancopopular', 'ficensa', 'banhcafe', 'bantrab', 'tigo', 'tengo'];
+export const DEFAULT_QUERY = `-category:promotions -category:social (from:(${BANK_SENDERS.join(' OR ')}) OR subject:(transacción OR transaccion OR compra OR consumo OR débito OR debito OR depósito OR deposito OR transferencia OR retiro OR movimiento) OR "BAC Credomatic")`;
+const FIRST_WINDOW_DAYS = 30;
+const MAX_MESSAGES = 150;
 
 export type GmailConfig = { senders: string[]; label?: string; default_account_id?: string | null; query?: string };
 
@@ -125,14 +130,24 @@ export async function syncGmail(db: Db, userId: string, f: typeof fetch = fetch)
     throw new AppError(502, 'token_refresh_failed', 'Google rechazó el acceso guardado. Vuelve a conectar Gmail.');
   }
   const h = { authorization: `Bearer ${tj.access_token}` };
-  const q = [cfg.query ?? DEFAULT_QUERY, cfg.senders.length ? `(${cfg.senders.map((s) => `from:${s}`).join(' OR ')})` : '', cfg.label ? `label:${cfg.label}` : ''].filter(Boolean).join(' ');
-  const list: any = await (await f(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(q)}`, { headers: h })).json();
+  // Primera revisión: últimos 30 días. Después, solo lo llegado desde la revisión anterior (con 2 días de margen).
+  const since = i.last_sync_at ? Math.floor(new Date(i.last_sync_at).getTime() / 1000) - 2 * 86400 : null;
+  const q = [cfg.query ?? DEFAULT_QUERY, since ? `after:${since}` : `newer_than:${FIRST_WINDOW_DAYS}d`, cfg.senders.length ? `(${cfg.senders.map((s) => `from:${s}`).join(' OR ')})` : '', cfg.label ? `label:${cfg.label}` : ''].filter(Boolean).join(' ');
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const list: any = await (await f(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(q)}${pageToken ? `&pageToken=${pageToken}` : ''}`, { headers: h })).json();
+    ids.push(...(list.messages ?? []).map((m: any) => m.id));
+    pageToken = list.nextPageToken;
+  } while (pageToken && ids.length < MAX_MESSAGES);
   const stats = { scanned: 0, created: 0, duplicates: 0, ignored: 0, ignored_reasons: [] as string[] };
-  for (const m of list.messages ?? []) {
-    const msg: any = await (await f(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, { headers: h })).json();
+  for (const id of ids.slice(0, MAX_MESSAGES)) {
+    // Ya registrado antes (mismo correo): no hace falta volver a descargarlo.
+    if (await one(db, `SELECT 1 FROM transactions WHERE user_id=$1 AND external_id=$2`, [userId, `msg:${id}`])) { stats.scanned++; stats.duplicates++; continue; }
+    const msg: any = await (await f(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`, { headers: h })).json();
     stats.scanned++;
     const hd = (n: string) => msg.payload?.headers?.find((x: any) => x.name.toLowerCase() === n)?.value ?? '';
-    const parsed = parseFinancialMessage({ subject: hd('subject'), body: bodyOf(msg.payload), from: hd('from'), receivedAt: new Date(Number(msg.internalDate)).toISOString(), id: m.id });
+    const parsed = parseFinancialMessage({ subject: hd('subject'), body: bodyOf(msg.payload), from: hd('from'), receivedAt: new Date(Number(msg.internalDate)).toISOString(), id });
     if (parsed.kind === 'ignored') { stats.ignored++; if (parsed.reason && stats.ignored_reasons.length < 5) stats.ignored_reasons.push(parsed.reason); continue; }
     const r = await ingestParsed(db, userId, parsed, { account_id: cfg.default_account_id, source: 'email', label: `Correo: ${hd('subject').slice(0, 80)}` });
     if (r.outcome === 'created') stats.created++;
