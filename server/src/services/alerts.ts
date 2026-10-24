@@ -36,7 +36,7 @@ export async function refreshAlerts(db: Db, userId: string) {
     }
   }
   if (prefs.low_balance) {
-    const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && a.currency === cur && LIQUID_TYPES.includes(a.type));
+    const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && !a.linked_account_id && a.currency === cur && LIQUID_TYPES.includes(a.type));
     const liquid = accs.reduce((s, a) => s + a.balance, 0);
     const obl = (await upcomingObligations(db, userId, cur, tz, 14)).reduce((s, o) => s + o.amount, 0);
     if (accs.length && obl > 0 && liquid - obl < 0) {

@@ -19,6 +19,8 @@ export const dateTime = (iso: string | Date) => new Intl.DateTimeFormat(F.locale
 export const dayKey = (iso: string | Date) => new Intl.DateTimeFormat('en-CA', { timeZone: F.timezone }).format(new Date(iso));
 /** Fecha de hoy (AAAA-MM-DD) en la zona horaria del usuario; no en UTC, que en Honduras ya es "mañana" desde las 6 p. m. */
 export const todayKey = () => dayKey(new Date());
+/** Saldo a mostrar: una tarjeta de débito vinculada muestra el de su cuenta (su saldo propio es 0 para no contarlo dos veces). */
+export const shownBalance = (a: any) => (a?.shared_balance ?? a?.balance ?? 0) as number;
 export const ymd = (s: string) => new Intl.DateTimeFormat(F.locale, { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(s + 'T00:00:00Z'));
 
 /** "1,234.50" | "1.234,50" | "120" -> centavos (o null si no es válido) */

@@ -86,6 +86,11 @@ export async function accountsWithBalances(db: Db, userId: string) {
     const lr = a.last_reconciliation;
     out.bank_confirmed_balance = lr ? lr.bank_balance : null;
     return out;
+  }).map((a, _i, all) => {
+    // Tarjeta de débito vinculada: su saldo propio es 0 (no se suma dos veces); para mostrarla se usa el de su cuenta.
+    if (!a.linked_account_id) return a;
+    const l = all.find((x) => x.id === a.linked_account_id);
+    return { ...a, linked_name: l?.name ?? null, shared_balance: l ? l.balance : null };
   });
 }
 

@@ -18,7 +18,7 @@ describe('NOVA AI y evaluador de compras', () => {
     const u = await seededUser();
     const r = await u.ok(u.post('/api/ai/chat', { messages: [{ role: 'user', content: '¿Cuánto gasté en comida este mes?' }] }));
     expect(r.mode).toBe('local');
-    expect(r.answer).toMatch(/no tienes movimientos confirmados/i);
+    expect(r.answer).toMatch(/necesito movimientos confirmados/i);
     expect(r.answer).not.toMatch(/L\s?\d/);
   });
 

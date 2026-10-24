@@ -80,7 +80,7 @@ export async function buildReport(db: Db, userId: string, kind: string, f: Filte
       return { ...base, kind, title: 'Tasa de ahorro', columns: [{ key: 'month', label: 'Mes' }, { key: 'income', label: 'Ingresos', type: 'money' }, { key: 'net', label: 'Ahorro neto', type: 'money' }, { key: 'rate', label: 'Tasa', type: 'pct' }], rows: s.map((m) => ({ ...m, rate: m.income > 0 ? Math.round((m.net / m.income) * 1000) / 10 : null })) };
     }
     case 'net_worth': {
-      const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && a.balance_base != null);
+      const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && !a.linked_account_id && a.balance_base != null);
       const debts = (await debtsWithRemaining(db, userId)).filter((d) => d.status === 'open' && d.currency === cur);
       const lines = [
         ...accs.map((a) => ({ group: a.type === 'credit_card' ? 'Pasivos: tarjetas' : 'Activos: cuentas', name: a.currency === cur ? a.name : `${a.name} (${a.currency} × ${a.fx_rate})`, total: a.balance_base })),
@@ -102,7 +102,7 @@ export async function buildReport(db: Db, userId: string, kind: string, f: Filte
       return { ...base, quality: { level: 'estimado', notes: [...q.notes, 'El equivalente mensual es una estimación sobre importes esperados.'] }, kind, title: 'Gastos recurrentes', columns: [{ key: 'name', label: 'Concepto' }, { key: 'frequency', label: 'Frecuencia' }, { key: 'amount', label: 'Importe', type: 'money' }, { key: 'next_date', label: 'Próximo', type: 'date' }], rows: r, totals: { 'Equivalente mensual': Math.round(monthly) } };
     }
     case 'reconciliation': {
-      const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived);
+      const accs = (await accountsWithBalances(db, userId)).filter((a) => !a.archived && !a.linked_account_id);
       return { ...base, kind, title: 'Registrado vs. conciliado', columns: [{ key: 'name', label: 'Cuenta' }, { key: 'balance', label: 'Saldo en la app', type: 'money' }, { key: 'bank', label: 'Último saldo del banco', type: 'money' }, { key: 'as_of', label: 'Fecha', type: 'date' }, { key: 'diff', label: 'Diferencia al cierre', type: 'money' }],
         rows: accs.map((a) => ({ name: a.name, balance: a.balance, bank: a.last_reconciliation?.bank_balance ?? null, as_of: a.last_reconciliation?.as_of ?? null, diff: a.last_reconciliation?.difference ?? null })) };
     }

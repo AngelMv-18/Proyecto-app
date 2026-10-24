@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { ACCOUNT_TYPES, fromMinor, money, toMinor, todayKey, ymd } from '../format';
+import { ACCOUNT_TYPES, fromMinor, money, shownBalance, toMinor, todayKey, ymd } from '../format';
 import { Icon } from '../icons';
 import { Empty, ErrorBlock, Field, LoadingBlock, Sheet, confirmDialog, useAction, useApi, useRoute } from '../ui';
 import { BANKS, bankByCode } from '../banks';
@@ -16,7 +16,12 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
   const [custom, setCustom] = useState<boolean>(Boolean(a?.card_colors)); const initial = (a?.card_colors ?? '').split(',');
   const [c1, setC1] = useState(initial[0] || '#1A2029'); const [c2, setC2] = useState(initial[1] || '#C6FF3D');
   const [run, busy] = useAction();
+  const { data: all } = useApi<any[]>('/api/accounts');
+  const [link, setLink] = useState<string>(a?.linked_account_id ?? '');
   const isCard = type === 'debit_card' || type === 'credit_card';
+  // Cuentas de las que puede salir el dinero de una tarjeta de débito (misma moneda).
+  const linkable = (all ?? []).filter((x) => !x.archived && !x.linked_account_id && x.id !== a?.id && ['bank', 'savings', 'other'].includes(x.type) && x.currency === (a?.currency ?? (cur.trim().toUpperCase() || x.currency)));
+  const linked = type === 'debit_card' && Boolean(link);
   // Los últimos 4 dígitos también sirven en cuentas bancarias: los avisos por correo los traen ("cuenta *****6480").
   const hasDigits = isCard || type === 'bank' || type === 'savings';
   const pickBank = (code: string) => {
@@ -26,7 +31,7 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
     if (b?.kind === 'cash') setType('cash');
     if (b?.kind === 'wallet') setType('wallet');
   };
-  const preview = { name: name || 'Mi tarjeta', type, currency: cur || 'HNL', balance: toMinor(open) ?? 0, available_credit: type === 'credit_card' && limit ? (toMinor(limit) ?? 0) + Math.min(toMinor(open) ?? 0, 0) : null, owed: 0, bank_code: bank || null, card_network: isCard ? net || null : null, last4: hasDigits && last4.length === 4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
+  const preview = { name: name || 'Mi tarjeta', type, currency: cur || 'HNL', balance: linked ? (linkable.find((x) => x.id === link)?.balance ?? 0) : toMinor(open) ?? 0, available_credit: type === 'credit_card' && limit ? (toMinor(limit) ?? 0) + Math.min(toMinor(open) ?? 0, 0) : null, owed: 0, bank_code: bank || null, card_network: isCard ? net || null : null, last4: hasDigits && last4.length === 4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
   const save = async () => {
     const fe: Record<string, string> = {};
     if (!name.trim()) fe.name = 'Ponle un nombre';
@@ -34,7 +39,7 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
     if (last4 && !/^\d{4}$/.test(last4)) fe.last4 = 'Escribe solo los últimos 4 dígitos';
     setErrs(fe); if (Object.keys(fe).length) return;
     const look = { bank_code: bank || null, card_network: isCard ? net || null : null, last4: hasDigits && last4 ? last4 : null, card_colors: custom ? `${c1},${c2}` : null };
-    const body: any = { name: name.trim(), opening_balance: ob, opening_date: date, ...look, ...(type === 'credit_card' ? { credit_limit: limit ? toMinor(limit) : null } : {}) };
+    const body: any = { name: name.trim(), opening_balance: linked ? 0 : ob, opening_date: date, ...look, ...(type === 'debit_card' ? { linked_account_id: link || null } : {}), ...(type === 'credit_card' ? { credit_limit: limit ? toMinor(limit) : null } : {}) };
     const r = await run(() => a ? api.patch(`/api/accounts/${a.id}`, body) : api.post('/api/accounts', { ...body, type, ...(cur ? { currency: cur.toUpperCase() } : {}) }), a ? 'Cuenta actualizada' : 'Cuenta creada');
     if (r) onClose();
   };
@@ -64,12 +69,21 @@ function AccountForm({ a, onClose }: { a?: any; onClose: () => void }) {
       <label className="switch"><span>Personalizar colores</span><input type="checkbox" role="switch" checked={custom} onChange={(e) => setCustom(e.target.checked)} /></label>
       {custom && <div className="row" style={{ gap: 12, marginBottom: 12 }}><label className="small">Principal <input type="color" value={c1} onChange={(e) => setC1(e.target.value)} aria-label="Color principal" /></label><label className="small">Acento <input type="color" value={c2} onChange={(e) => setC2(e.target.value)} aria-label="Color de acento" /></label></div>}
       {!a && <Field id="ac" label="Moneda" hint="Vacío = tu moneda principal. Los totales solo suman la moneda principal (o las que tengan tipo de cambio)."><input id="ac" className="input" value={cur} maxLength={3} onChange={(e) => setCur(e.target.value)} placeholder="HNL" /></Field>}
-      <div className="grid cols-2" style={{ gap: 0 }}>
+      {type === 'debit_card' && (
+        <Field id="alk" label="¿De qué cuenta sale el dinero de esta tarjeta?" hint={linked ? 'La tarjeta mostrará el saldo de esa cuenta y todo lo que pagues con ella se registrará ahí. Así el mismo dinero no se cuenta dos veces.' : 'Si tu tarjeta de débito usa el dinero de una cuenta que ya registraste, vincúlala para no sumarlo dos veces.'}>
+          <select id="alk" className="input" value={link} onChange={(e) => setLink(e.target.value)}>
+            <option value="">Tiene su propio saldo</option>
+            {linkable.map((x) => <option key={x.id} value={x.id}>{x.name} ({money(x.balance, x.currency)})</option>)}
+          </select>
+        </Field>
+      )}
+      {!linked && <div className="grid cols-2" style={{ gap: 0 }}>
         <Field id="ao" label={type === 'credit_card' ? 'Deuda inicial (negativo)' : 'Saldo inicial'} error={errs.opening_balance} hint={type === 'credit_card' ? 'Ej.: -1500 si ya debes 1,500' : undefined}><input id="ao" className="input" inputMode="decimal" value={open} onChange={(e) => setOpen(e.target.value)} /></Field>
         <Field id="ad" label="Fecha del saldo inicial"><input id="ad" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      </div>
+      </div>}
       {type === 'credit_card' && <Field id="al" label="Límite de crédito"><input id="al" className="input" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>}
-      {a && <p className="hint">Cambiar el saldo inicial recalcula todo el historial de esta cuenta. Queda registrado en la auditoría.</p>}
+      {linked && a && !a.linked_account_id && <p className="hint">Al vincularla, los movimientos que ya tenga esta tarjeta pasarán a la cuenta elegida (no se borra nada) y su saldo inicial propio quedará en 0.</p>}
+      {a && !linked && <p className="hint">Cambiar el saldo inicial recalcula todo el historial de esta cuenta. Queda registrado en la auditoría.</p>}
       <button className="btn primary block" disabled={busy} onClick={save}>Guardar</button>
     </Sheet>
   );
@@ -97,12 +111,17 @@ export function Accounts() {
   if (error && !data) return <ErrorBlock error={error} retry={reload} />;
   if (loading && !data) return <LoadingBlock rows={4} />;
   const active = data!.filter((a) => !a.archived), arch = data!.filter((a) => a.archived);
+  // Sugerencia: tarjeta de débito sin vincular + cuenta bancaria del mismo banco y moneda (suele ser el mismo dinero).
+  const pairs = active.filter((c) => c.type === 'debit_card' && !c.linked_account_id && c.bank_code).flatMap((c) => {
+    const m = active.filter((x) => ['bank', 'savings'].includes(x.type) && x.bank_code === c.bank_code && x.currency === c.currency);
+    return m.length === 1 ? [[c, m[0]] as const] : [];
+  });
   const Card = ({ a }: { a: any }) => (
     <div className="card">
       <div style={{ maxWidth: 300, marginBottom: 12 }}><CardFace a={a} /></div>
-      <div className="row between"><div><h3>{a.name}</h3><div className="small muted">{ACCOUNT_TYPES[a.type]} · {a.currency}</div></div><div className={`num ${a.balance < 0 ? 'neg' : ''}`} style={{ fontSize: '1.4rem', fontWeight: 700 }}>{money(a.balance, a.currency)}</div></div>
+      <div className="row between"><div><h3>{a.name}</h3><div className="small muted">{ACCOUNT_TYPES[a.type]} · {a.currency}</div></div><div className={`num ${shownBalance(a) < 0 ? 'neg' : ''}`} style={{ fontSize: '1.4rem', fontWeight: 700 }}>{money(shownBalance(a), a.currency)}</div></div>
       <div className="hr" />
-      <div className="stack small" style={{ gap: 4 }}>
+      {a.linked_name ? <p className="small muted" style={{ margin: 0 }}>Usa el dinero de <b>{a.linked_name}</b>: muestra su saldo y lo que pagues con ella se registra en esa cuenta. No suma aparte en tus totales.</p> : <div className="stack small" style={{ gap: 4 }}>
         <div className="row between"><span className="muted">Saldo inicial ({ymd(a.opening_date)})</span><span className="num">{money(a.opening_balance, a.currency)}</span></div>
         <div className="row between"><span className="muted">Saldo contable (calculado)</span><span className="num">{money(a.balance, a.currency)}</span></div>
         <div className="row between"><span className="muted">Confirmado por el banco</span><span className="num">{a.last_reconciliation ? `${money(a.bank_confirmed_balance, a.currency)} · ${ymd(a.last_reconciliation.as_of)}` : 'nunca conciliada'}</span></div>
@@ -114,9 +133,9 @@ export function Accounts() {
           <p className="hint">Pagar la tarjeta es una transferencia desde tu cuenta: cancela la deuda sin volver a contar las compras como gasto.</p>
         </>}
         {a.pending_count > 0 && <div className="row between"><span className="muted">Movimientos por revisar</span><span className="badge warn">{a.pending_count}</span></div>}
-      </div>
+      </div>}
       <div className="row wrap" style={{ marginTop: 12 }}>
-        <button className="btn sm" onClick={() => setRec(a)}>Conciliar</button><button className="btn sm" onClick={() => setEdit(a)}><Icon name="edit" size={14} />Editar</button>
+        {!a.linked_name && <button className="btn sm" onClick={() => setRec(a)}>Conciliar</button>}<button className="btn sm" onClick={() => setEdit(a)}><Icon name="edit" size={14} />Editar</button>
         <button className="btn sm ghost" onClick={async () => { if (a.archived || await confirmDialog(`"${a.name}" se archivará y dejará de sumar en tus totales. Su historial se conserva.`, 'Archivar')) run(() => api.patch(`/api/accounts/${a.id}`, { archived: !a.archived }), a.archived ? 'Cuenta restaurada' : 'Cuenta archivada'); }}>{a.archived ? 'Restaurar' : 'Archivar'}</button>
       </div>
     </div>
@@ -124,6 +143,12 @@ export function Accounts() {
   return (
     <div className="stack">
       <div className="row between"><h1>Cuentas</h1><button className="btn primary sm" onClick={() => setEdit('new')}><Icon name="plus" size={16} />Nueva</button></div>
+      {pairs.map(([card, acct]) => (
+        <section key={card.id} className="alert info" role="note"><Icon name="info" size={20} />
+          <div className="grow small"><b>¿Tu {card.name} usa el dinero de {acct.name}?</b> Ahora se suman las dos ({money(card.balance, card.currency)} + {money(acct.balance, acct.currency)}) y tu total sale más alto de lo real. Vincúlalas para contar ese dinero una sola vez.
+            <div className="row wrap" style={{ gap: 6, marginTop: 8 }}><button className="btn sm primary" onClick={async () => { if (await confirmDialog(`${card.name} mostrará el saldo de ${acct.name}. Los movimientos que ya tenga la tarjeta pasarán a esa cuenta (no se borra nada) y su saldo inicial propio quedará en 0.`, 'Vincular')) run(() => api.patch(`/api/accounts/${card.id}`, { linked_account_id: acct.id }), 'Tarjeta vinculada'); }}>Vincular</button></div></div>
+        </section>
+      ))}
       {active.length > 0 && <WalletStack accounts={active} />}
       {!active.length && <section className="card"><Empty icon="wallet" title="Aún no tienes cuentas" text="Crea tu efectivo y tus cuentas con su saldo actual para que los totales sean reales." action={<button className="btn primary" onClick={() => setEdit('new')}>Crear cuenta</button>} /></section>}
       <div className="grid cols-2">{active.map((a) => <Card key={a.id} a={a} />)}</div>

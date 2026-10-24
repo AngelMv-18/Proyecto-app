@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ApiError, api } from '../api';
-import { ACCOUNT_TYPES, NATURE_LABEL, PAY_METHODS, fromMinor, isoLocalInput, money, toMinor } from '../format';
+import { ACCOUNT_TYPES, NATURE_LABEL, PAY_METHODS, fromMinor, isoLocalInput, money, shownBalance, toMinor } from '../format';
 import { Icon } from '../icons';
 import { Field, Sheet, invalidate, toast, toastError, useApi } from '../ui';
 
@@ -105,7 +105,7 @@ export function TxForm({ initialKind = 'expense', tx, onClose }: { initialKind?:
         <div className="grid cols-2" style={{ gap: 0 }}>
           <Field id="account" label={kind === 'transfer' ? 'Desde la cuenta' : kind === 'income' ? 'Ingresa a' : 'Pagado con'} error={errs.account_id}>
             <select id="account" className="input" value={acc?.id ?? ''} onChange={(e) => { setAccountId(e.target.value); if (!method) setMethod(defaultMethod(active.find((a) => a.id === e.target.value)?.type)); }}>
-              {active.map((a) => <option key={a.id} value={a.id}>{a.name} · {ACCOUNT_TYPES[a.type]} ({money(a.balance, a.currency)})</option>)}
+              {active.map((a) => <option key={a.id} value={a.id}>{a.name} · {ACCOUNT_TYPES[a.type]} ({money(shownBalance(a), a.currency)})</option>)}
             </select>
           </Field>
           {kind === 'transfer' ? (

@@ -32,7 +32,7 @@ export const TOOLS: Tool[] = [
       const b = await baseline(db, uid, u.currency, u.timezone);
       return {
         moneda: u.currency, periodo_mes: { desde: m.start, hasta: m.end },
-        cuentas: ls.accs.filter((a) => !a.archived).map((a) => ({ nombre: a.name, tipo: a.type, moneda: a.currency, saldo: M(a.balance), reservado_en_metas_virtuales: M(a.reserved_virtual) })),
+        cuentas: ls.accs.filter((a) => !a.archived && !a.linked_account_id).map((a) => ({ nombre: a.name, tipo: a.type, moneda: a.currency, saldo: M(a.balance), reservado_en_metas_virtuales: M(a.reserved_virtual), tarjetas_de_debito_vinculadas: ls.accs.filter((x) => x.linked_account_id === a.id).map((x) => x.name) })),
         disponible_liquido: M(ls.liquid), reservado_metas_virtuales: M(ls.reserved), deuda_tarjetas: M(ls.cards_owed),
         compromisos_30_dias: M(obl.reduce((s, o) => s + o.amount, 0)), libre_tras_compromisos: M(ls.free - obl.reduce((s, o) => s + o.amount, 0)),
         mes_actual: { ingresos: M(ie.income), gastos: M(ie.expense), ahorro_neto: M(ie.net) },
@@ -191,6 +191,7 @@ export async function askNova(db: Db, userId: string, history: { role: 'user' | 
 }
 
 // ---------- Modo local: respuestas deterministas con los mismos cálculos ----------
+const HELP = 'Prueba con preguntas como:\n• ¿Cuánto dinero tengo? / ¿Cuánto puedo gastar esta semana?\n• ¿En qué gasto más? / ¿Cuánto gasté en comida?\n• ¿Puedo permitirme una compra de 3,000?\n• ¿Cómo voy con mis metas? / ¿Cuánto debo?\n• ¿Qué pagos tengo pronto? / ¿Cómo van mis presupuestos?\n• ¿Qué gastos puedo reducir? / ¿Qué cambió respecto al mes anterior?';
 const strip = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export async function localAnswer(db: Db, userId: string, q: string): Promise<AiResult> {
@@ -203,7 +204,32 @@ export async function localAnswer(db: Db, userId: string, q: string): Promise<Ai
   const R = (answer: string): AiResult => ({ answer, mode: 'local', tools_used: used });
   const base = await baseline(db, userId, c, u.timezone);
   const noData = (await one<{ n: number }>(db, `SELECT count(*)::int n FROM transactions WHERE user_id=$1 AND status='confirmed'`, [userId]))!.n === 0;
-  if (noData && !/(ayuda|que puedes)/.test(t)) return R('Todavía no tienes movimientos confirmados, así que no puedo calcular nada fiable. Registra tus cuentas y algunos gastos e ingresos (o importa un extracto) y vuelve a preguntarme.');
+  // Preguntas de análisis de gastos necesitan movimientos; las de saldos, metas, deudas y pagos se responden con lo que haya.
+  const needMovements = (what: string) => R(`Para decirte ${what} necesito movimientos confirmados, y todavía no tienes ninguno. Registra tus gastos e ingresos (o confirma los que llegan a Revisión desde Gmail) y vuelve a preguntarme.\n\nMientras tanto puedo decirte cuánto dinero tienes, cómo van tus metas, tus deudas y tus próximos pagos.`);
+  const snapshot = async () => {
+    const s: any = await run('resumen_financiero');
+    if (!s.cuentas.length) return 'Aún no tienes cuentas registradas. Crea tu efectivo, tus cuentas y tarjetas en Cuentas.';
+    return `Tienes **${f(s.disponible_liquido * 100)} disponibles** entre efectivo, bancos y billeteras${s.reservado_metas_virtuales ? ` (de eso, ${f(s.reservado_metas_virtuales * 100)} reservados en metas)` : ''}.\n${s.cuentas.map((a: any) => `• ${a.nombre}: ${f(a.saldo * 100)}${a.tarjetas_de_debito_vinculadas?.length ? ` (con ${a.tarjetas_de_debito_vinculadas.join(', ')})` : ''}`).join('\n')}${s.deuda_tarjetas ? `\n• Deuda en tarjetas de crédito: ${f(s.deuda_tarjetas * 100)}` : ''}${s.compromisos_30_dias ? `\nPagos de los próximos 30 días: ${f(s.compromisos_30_dias * 100)} → te quedarían ${f(s.libre_tras_compromisos * 100)} libres.` : ''}`;
+  };
+  if (/(ayuda|que puedes|que sabes|como funcionas)/.test(t)) return R(`${HELP}\n\n${await snapshot()}`);
+
+  // Saldos y cuentas: no requieren historial.
+  if (/(saldo|cuanto (?:dinero )?tengo|cuanto hay|mis cuentas|dinero disponible|disponible|cuanto me queda|patrimonio|en total)/.test(t) && !/(semana|despues de pagar|compromisos)/.test(t)) return R(await snapshot());
+  if (/(deuda|\bdebo\b|me deben|prestamo|prestamos)/.test(t) && !/(reducir|recortar|ahorrar|gastar|comprar)/.test(t)) {
+    const r: any = await run('compromisos_y_deudas');
+    if (!r.deudas.length) return R('No tienes deudas ni préstamos registrados. Puedes agregarlos en Deudas para que te recuerde los pagos y cuánto te falta.');
+    return R(`Tus deudas y préstamos pendientes:\n${r.deudas.map((d: any) => `• ${d.tipo === 'yo debo' ? 'Debes a' : 'Te debe'} ${d.contraparte}: ${f(d.pendiente * 100)}${d.vence ? ` (vence ${d.vence})` : ''}`).join('\n')}`);
+  }
+  if (/(presupuesto|presupuestos|me pase|limite)/.test(t)) {
+    const r: any = await run('estado_presupuestos');
+    if (!r.presupuestos.length) return R('No tienes presupuestos. Créalos en Presupuestos (por ejemplo, Alimentación 6,000 al mes) y te avisaré antes de que te pases.');
+    return R(`Así van tus presupuestos:\n${r.presupuestos.map((b: any) => `• ${b.categoria}: ${f(b.gastado * 100)} de ${f(b.limite * 100)} (${b.porcentaje}%)${b.restante < 0 ? ' ⚠️ excedido' : ` · quedan ${f(b.restante * 100)}`}`).join('\n')}`);
+  }
+  if (/(pagos? (?:proximos|pendientes|que vienen)|pagos? .{0,15}pronto|proximos pagos|que tengo que pagar|recurrentes|suscripciones|facturas|vence|vencen)/.test(t)) {
+    const r: any = await run('compromisos_y_deudas', { dias: 30 });
+    if (!r.compromisos.length) return R('No tienes pagos programados en los próximos 30 días. Agrega tus suscripciones, alquiler o servicios en Recurrentes.');
+    return R(`Pagos de los próximos 30 días (${f(r.total * 100)} en total):\n${r.compromisos.slice(0, 8).map((o: any) => `• ${o.fecha}: ${o.nombre} — ${f(o.importe * 100)}${o.vencido ? ' ⚠️ vencido' : ''}`).join('\n')}`);
+  }
 
   // ¿Puedo permitirme una compra de N?
   const money = q.match(/(\d[\d.,]*)\s*(?:hnl|lempiras|lps?|l\b)?/i);
@@ -228,18 +254,21 @@ export async function localAnswer(db: Db, userId: string, q: string): Promise<Ai
     if (!r.metas.length) return R('No tienes metas activas. Crea una en la sección Metas y te diré cuánto necesitas ahorrar por semana.');
     return R(r.metas.map((g: any) => `**${g.nombre}**: ${f(g.ahorrado * 100)} de ${f(g.objetivo * 100)} (${g.porcentaje}%).${g.fecha_objetivo ? ` Meta: ${g.fecha_objetivo}.` : ''}${g.mensual_necesario ? ` Necesitas ≈ ${f(g.mensual_necesario * 100)}/mes (${f(g.semanal_necesario * 100)}/semana).` : ''}${g.fecha_estimada && g.fecha_estimada !== 'cumplida' ? ` Al ritmo actual: ${g.fecha_estimada}.` : ''}${g.retrasada ? ' ⚠️ Va retrasada.' : ''}`).join('\n'));
   }
-  if (/(cambio|cambió|respecto al mes|mes anterior|comparad)/.test(t)) {
+  if (/(cambio|respecto al mes|mes anterior|comparad)/.test(t)) {
+    if (noData) return needMovements('qué cambió respecto al mes anterior');
     const r: any = await run('comparar_meses');
     const top = r.categorias.slice(0, 4).map((x: any) => `• ${x.categoria}: ${f(x.actual * 100)} vs ${f(x.anterior * 100)} (${x.diferencia >= 0 ? '+' : ''}${f(x.diferencia * 100)})`).join('\n');
     return R(`Gastos del mes actual: ${f(r.mes_actual.gastos * 100)} vs ${f(r.mes_anterior.gastos * 100)} el mes anterior. Ingresos: ${f(r.mes_actual.ingresos * 100)} vs ${f(r.mes_anterior.ingresos * 100)}.\nMayores cambios:\n${top}\n\n${r.nota}`);
   }
   if (/(reducir|recortar|ahorrar si|cuanto podria ahorrar|sin afectar)/.test(t)) {
+    if (noData) return needMovements('qué gastos podrías reducir');
     const r: any = await run('gastos_por_categoria', { periodo: 'month' });
     const disc = r.categorias.filter((x: any) => x.naturaleza !== 'essential');
     if (!disc.length) return R('No veo gastos discrecionales registrados este mes, así que no hay recortes evidentes que proponer.');
     const tot = disc.reduce((s: number, x: any) => s + x.total, 0);
     return R(`Gastos no esenciales de ${r.periodo}: ${f(tot * 100)}.\n${disc.slice(0, 4).map((x: any) => `• ${x.categoria}: ${f(x.total * 100)} → recortar 20% ahorraría ${f(x.total * 20)}`).join('\n')}\n\nSi reduces 20% todos los no esenciales ahorrarías ≈ **${f(tot * 20)}** al mes. Supuesto: el mes actual es representativo (llevas ${base.span_days} días de historial).`);
   }
+  if (noData && /(gast|categoria|salud|como voy|resumen|estado)/.test(t)) return needMovements(/salud|como voy|resumen|estado/.test(t) ? 'cómo va tu salud financiera' : 'en qué gastas');
   const cats: any = (await run('gastos_por_categoria', { periodo: /anterior/.test(t) ? 'last_month' : 'month' }));
   const named = cats.categorias.find((x: any) => t.includes(strip(x.categoria)) || strip(x.categoria).split(' ').some((w: string) => w.length > 4 && t.includes(w.slice(0, 5))));
   if (/(cuanto gaste|gaste en)/.test(t) && named) return R(`En ${cats.periodo} gastaste **${f(named.total * 100)}** en ${named.categoria} (${named.porcentaje}% de tus gastos de ${f(cats.total * 100)}).`);
@@ -251,5 +280,5 @@ export async function localAnswer(db: Db, userId: string, q: string): Promise<Ai
     const h: any = await run('salud_financiera');
     return R(`Salud financiera: **${h.score ?? 'sin datos'}/100 (${h.label})**. ${h.note}\n${h.parts.filter((p: any) => p.score != null).map((p: any) => `• ${p.label}: ${p.score}/100 — ${p.detail}`).join('\n')}`);
   }
-  return R('Puedo responder con tus datos reales preguntas como:\n• ¿Cuánto puedo gastar esta semana?\n• ¿En qué categoría gasto más? / ¿Cuánto gasté en comida?\n• ¿Puedo permitirme una compra de 3,000 HNL?\n• ¿Qué gastos puedo reducir? / ¿Qué cambió respecto al mes anterior?\n• ¿Cómo voy con mis metas? / ¿Cuánto me quedará después de mis compromisos?\n\nEstoy en modo local (reglas deterministas). Con ANTHROPIC_API_KEY configurada podré conversar con más libertad usando las mismas herramientas de solo lectura.');
+  return R(`No entendí bien tu pregunta (en modo local solo reconozco preguntas concretas sobre tus datos). Esto es lo que puedo decirte ahora:\n\n${await snapshot()}\n\n${HELP}`);
 }

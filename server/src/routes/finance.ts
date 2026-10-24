@@ -41,6 +41,30 @@ const appearance = {
   card_colors: z.string().regex(/^#[0-9A-Fa-f]{6}(,#[0-9A-Fa-f]{6}){0,2}$/).nullish(),
 };
 
+/**
+ * Vincula una tarjeta de débito a la cuenta bancaria de la que sale su dinero. Los movimientos que ya tuviera la
+ * tarjeta pasan a esa cuenta (no se borra nada; queda en el historial) y la tarjeta deja de tener saldo propio,
+ * para que el mismo dinero no se cuente dos veces.
+ */
+async function applyLink(c: any, userId: string, card: any, targetId: string | null) {
+  if (targetId === (card.linked_account_id ?? null)) return;
+  if (!targetId) { await c.query('UPDATE accounts SET linked_account_id=NULL WHERE id=$1', [card.id]); await audit(c, userId, 'account', card.id, 'unlink'); return; }
+  if (card.type !== 'debit_card') throw badRequest('Solo una tarjeta de débito se puede vincular a una cuenta', 'validation', { linked_account_id: 'Solo tarjetas de débito' });
+  const t = await one(c, 'SELECT * FROM accounts WHERE id=$1 AND user_id=$2', [targetId, userId]);
+  if (!t || t.archived || t.id === card.id) throw badRequest('Cuenta no válida para vincular', 'validation', { linked_account_id: 'Elige una cuenta activa' });
+  if (!['bank', 'savings', 'other'].includes(t.type) || t.linked_account_id) throw badRequest('La tarjeta solo se puede vincular a una cuenta bancaria o de ahorro', 'validation', { linked_account_id: 'Elige una cuenta bancaria' });
+  if (t.currency !== card.currency) throw badRequest(`La cuenta está en ${t.currency} y la tarjeta en ${card.currency}`, 'validation', { linked_account_id: 'Moneda distinta' });
+  if (await one(c, `SELECT 1 FROM transactions WHERE status<>'void' AND ((account_id=$1 AND to_account_id=$2) OR (account_id=$2 AND to_account_id=$1)) LIMIT 1`, [card.id, t.id]))
+    throw badRequest('Hay transferencias entre la tarjeta y esa cuenta; anúlalas antes de vincularlas (son el mismo dinero)', 'link_transfers');
+  const u = await getUser(c, userId);
+  if (await one(c, `SELECT 1 FROM transactions WHERE (account_id=$1 OR to_account_id=$1) AND status<>'void' AND (occurred_at AT TIME ZONE $3)::date < $2::date LIMIT 1`, [card.id, t.opening_date, u.timezone]))
+    throw badRequest(`La tarjeta tiene movimientos anteriores al saldo inicial de "${t.name}" (${t.opening_date}); cambia esa fecha primero`, 'before_opening');
+  const moved = (await c.query('UPDATE transactions SET account_id=$2 WHERE account_id=$1', [card.id, t.id])).rowCount ?? 0;
+  const movedTo = (await c.query('UPDATE transactions SET to_account_id=$2 WHERE to_account_id=$1', [card.id, t.id])).rowCount ?? 0;
+  await c.query('UPDATE accounts SET linked_account_id=$2, opening_balance=0 WHERE id=$1', [card.id, t.id]);
+  await audit(c, userId, 'account', card.id, 'link', { opening_balance: card.opening_balance }, { linked_account_id: t.id, moved_transactions: moved + movedTo });
+}
+
 export async function financeRoutes(app: FastifyInstance) {
   // ---------- Cuentas ----------
   app.get('/api/accounts', async (req) => accountsWithBalances(pool, uid(req)));
@@ -49,7 +73,7 @@ export async function financeRoutes(app: FastifyInstance) {
     const b = parse(z.object({
       name: z.string().trim().min(1).max(60), type: z.enum(['cash', 'bank', 'debit_card', 'credit_card', 'wallet', 'savings', 'other']),
       currency: z.string().length(3).toUpperCase().optional(), opening_balance: z.number().int().safe().default(0), opening_date: isoDate.optional(),
-      credit_limit: z.number().int().min(0).nullish(), color: z.string().max(20).nullish(), ...appearance,
+      credit_limit: z.number().int().min(0).nullish(), color: z.string().max(20).nullish(), ...appearance, linked_account_id: uuid.nullish(),
     }), req.body);
     const u = await getUser(pool, uid(req));
     return mutate(uid(req), async (c) => {
@@ -58,6 +82,7 @@ export async function financeRoutes(app: FastifyInstance) {
             VALUES ($1,$2,$3,$4,$5,COALESCE($6::date,(now() AT TIME ZONE $9)::date),$7,$8,$10,$11,$12,$13,(SELECT COALESCE(max(sort_order),0)+1 FROM accounts WHERE user_id=$1)) RETURNING *`,
           [uid(req), b.name, b.type, b.currency ?? u.currency, b.opening_balance, b.opening_date ?? null, b.type === 'credit_card' ? b.credit_limit ?? null : null, b.color ?? null, u.timezone, b.bank_code ?? null, b.card_network ?? null, b.last4 ?? null, b.card_colors ?? null]);
         await audit(c, uid(req), 'account', a.id, 'create', null, a);
+        if (b.linked_account_id) { await applyLink(c, uid(req), a, b.linked_account_id); return one(c, 'SELECT * FROM accounts WHERE id=$1', [a.id]); }
         return a;
       } catch (e: any) { if (e.code === '23505') throw conflict('Ya tienes una cuenta con ese nombre', 'duplicate_name'); throw e; }
     });
@@ -65,7 +90,7 @@ export async function financeRoutes(app: FastifyInstance) {
 
   app.patch('/api/accounts/:id', async (req) => {
     const { id } = parse(idParam, req.params);
-    const b = parse(z.object({ name: z.string().trim().min(1).max(60), archived: z.boolean(), credit_limit: z.number().int().min(0).nullable(), color: z.string().max(20).nullable(), opening_balance: z.number().int().safe(), opening_date: isoDate, ...appearance, sort_order: z.number().int().min(0).max(10000) }).partial(), req.body);
+    const b = parse(z.object({ name: z.string().trim().min(1).max(60), archived: z.boolean(), credit_limit: z.number().int().min(0).nullable(), color: z.string().max(20).nullable(), opening_balance: z.number().int().safe(), opening_date: isoDate, ...appearance, sort_order: z.number().int().min(0).max(10000), linked_account_id: uuid.nullable() }).partial(), req.body);
     return mutate(uid(req), async (c) => {
       const before = await one(c, 'SELECT * FROM accounts WHERE id=$1 AND user_id=$2 FOR UPDATE', [id, uid(req)]);
       if (!before) throw notFound('Cuenta');
@@ -80,6 +105,9 @@ export async function financeRoutes(app: FastifyInstance) {
               bank_code=$10, card_network=$11, last4=$12, card_colors=$13, sort_order=$14 WHERE id=$1 AND user_id=$2 RETURNING *`,
           [id, uid(req), b.name ?? null, b.archived ?? null, 'credit_limit' in b, b.credit_limit ?? null, b.color ?? null, b.opening_balance ?? null, b.opening_date ?? null, m.bank_code ?? null, m.card_network ?? null, m.last4 ?? null, m.card_colors ?? null, m.sort_order ?? 0]);
         await audit(c, uid(req), 'account', id, 'update', before, a);
+        if ('linked_account_id' in b) { await applyLink(c, uid(req), a, b.linked_account_id ?? null); return one(c, 'SELECT * FROM accounts WHERE id=$1', [id]); }
+        // Una tarjeta vinculada no tiene saldo propio.
+        if (a.linked_account_id && a.opening_balance !== 0) return one(c, 'UPDATE accounts SET opening_balance=0 WHERE id=$1 RETURNING *', [id]);
         return a;
       } catch (e: any) { if (e.code === '23505') throw conflict('Ya tienes una cuenta con ese nombre', 'duplicate_name'); throw e; }
     });
@@ -115,16 +143,20 @@ export async function financeRoutes(app: FastifyInstance) {
   app.get('/api/accounts/:id/overview', async (req) => {
     const { id } = parse(idParam, req.params);
     const u = await getUser(pool, uid(req));
-    const acc = (await accountsWithBalances(pool, uid(req))).find((a) => a.id === id);
+    const all = await accountsWithBalances(pool, uid(req));
+    const acc = all.find((a) => a.id === id);
     if (!acc) throw notFound('Cuenta');
+    // Tarjeta de débito vinculada: se muestran los números de la cuenta de la que sale su dinero.
+    const eid = acc.linked_account_id ?? id;
+    const eacc = all.find((a) => a.id === eid) ?? acc;
     const q = parse(z.object({ days: z.coerce.number().int().min(7).max(90).default(30) }), req.query);
-    const upcoming = (await upcomingObligations(pool, uid(req), acc.currency, u.timezone, q.days)).filter((o) => o.account_id === id);
+    const upcoming = (await upcomingObligations(pool, uid(req), acc.currency, u.timezone, q.days)).filter((o) => o.account_id === eid);
     const upcomingTotal = upcoming.reduce((s, o) => s + o.amount, 0);
     const month = await periodBounds(pool, u.timezone, 'month');
-    const spent = await one<{ s: number }>(pool, `SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount WHEN type='refund' THEN -amount ELSE 0 END),0)::bigint s FROM transactions WHERE user_id=$1 AND account_id=$2 AND status='confirmed' AND debt_id IS NULL AND occurred_at >= $3 AND occurred_at < $4`, [uid(req), id, month.start, month.end]);
-    const recent = await listTransactions(pool, uid(req), { account_id: id }, 8);
+    const spent = await one<{ s: number }>(pool, `SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount WHEN type='refund' THEN -amount ELSE 0 END),0)::bigint s FROM transactions WHERE user_id=$1 AND account_id=$2 AND status='confirmed' AND debt_id IS NULL AND occurred_at >= $3 AND occurred_at < $4`, [uid(req), eid, month.start, month.end]);
+    const recent = await listTransactions(pool, uid(req), { account_id: eid }, 8);
     // Para tarjetas de crédito, lo "disponible" es el crédito; para el resto, el saldo libre de reservas.
-    const available = acc.type === 'credit_card' ? acc.available_credit : acc.balance - acc.reserved_virtual;
+    const available = acc.type === 'credit_card' ? acc.available_credit : eacc.balance - eacc.reserved_virtual;
     return {
       account: acc, days: q.days, upcoming, upcoming_total: upcomingTotal,
       after_upcoming: available == null ? null : available - upcomingTotal,

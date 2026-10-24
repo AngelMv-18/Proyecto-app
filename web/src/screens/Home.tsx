@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { AreaChart, Bars, Donut, Gauge, Ring } from '../charts';
 import { openTx } from '../App';
-import { ACCOUNT_TYPES, dateShort, money, ymd } from '../format';
+import { ACCOUNT_TYPES, dateShort, money, shownBalance, ymd } from '../format';
 import { Icon, catIcon } from '../icons';
 import { Empty, ErrorBlock, LoadingBlock, Progress, Sheet, invalidate, nav, toastError, useApi } from '../ui';
 import { TxRow } from './Transactions';
@@ -146,8 +146,8 @@ export function Home({ me }: { me: any }) {
 
             <div className="list">{d.accounts.map((a: any) => (
               <div className="item" key={a.id} style={{ cursor: 'default' }}><span className="avatar"><Icon name={a.type === 'cash' ? 'coin' : a.type === 'credit_card' || a.type === 'debit_card' ? 'card' : 'wallet'} /></span>
-                <div className="grow"><div className="t">{a.name}</div><div className="s">{ACCOUNT_TYPES[a.type]}{a.type === 'credit_card' && a.available_credit != null ? ` · crédito disponible ${money(a.available_credit, a.currency)}` : ''}</div></div>
-                <div style={{ textAlign: 'right' }}><div className={`amt ${a.balance < 0 ? 'neg' : ''}`}>{money(a.balance, a.currency)}</div>{a.currency !== d.currency && <div className="xs faint">{a.balance_base != null ? `≈ ${money(a.balance_base)}` : 'sin tipo de cambio'}</div>}</div></div>
+                <div className="grow"><div className="t">{a.name}</div><div className="s">{ACCOUNT_TYPES[a.type]}{a.linked_name ? ` · usa el saldo de ${a.linked_name}` : ''}{a.type === 'credit_card' && a.available_credit != null ? ` · crédito disponible ${money(a.available_credit, a.currency)}` : ''}</div></div>
+                <div style={{ textAlign: 'right' }}><div className={`amt ${shownBalance(a) < 0 ? 'neg' : ''}${a.linked_name ? ' faint' : ''}`}>{money(shownBalance(a), a.currency)}</div>{a.currency !== d.currency && <div className="xs faint">{a.balance_base != null ? `≈ ${money(a.balance_base)}` : 'sin tipo de cambio'}</div>}</div></div>
             ))}</div>
             <div className="hr" />
             <div className="row between small"><span className="muted">Patrimonio neto estimado</span><b className="num">{money(d.net_worth)}</b></div>

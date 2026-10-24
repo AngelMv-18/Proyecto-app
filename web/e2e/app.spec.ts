@@ -81,7 +81,13 @@ test('la app sirve sin conectar nada: transferencia no cambia el total y NOVA AI
   await register(page); await createCash(page, '500');
   await page.goto('/#/ia');
   await page.getByRole('button', { name: '¿Cuánto puedo gastar esta semana?' }).click();
-  await expect(page.getByText(/no tienes movimientos confirmados/i)).toBeVisible();
+  // Con solo el saldo ya puede estimarlo (y lo dice: no cuenta ingresos futuros)
+  await expect(page.getByText(/por semana/).first()).toBeVisible();
+  await expect(page.getByText(/No se cuentan ingresos futuros/).first()).toBeVisible();
+  // Para analizar gastos sí necesita movimientos, y lo dice sin inventar cifras
+  await page.getByLabel('Escribe tu pregunta').fill('¿En qué categoría estoy gastando más?');
+  await page.getByLabel('Enviar').click();
+  await expect(page.getByText(/necesito movimientos confirmados/i)).toBeVisible();
   await page.getByRole('tab', { name: '¿Me conviene comprarlo?' }).click();
   await page.fill('#pi', 'Teléfono'); await page.fill('#pp', '3000');
   await page.getByRole('button', { name: 'Evaluar compra' }).click();

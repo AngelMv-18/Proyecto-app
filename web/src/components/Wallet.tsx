@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NETWORKS, Pattern, TYPE_BADGE, designFor } from '../banks';
-import { ACCOUNT_TYPES, money, ymd } from '../format';
+import { ACCOUNT_TYPES, money, shownBalance, ymd } from '../format';
 import { Icon } from '../icons';
 import { api } from '../api';
 import { ErrorBlock, LoadingBlock, nav, useAction, useApi } from '../ui';
@@ -31,7 +31,7 @@ export function CardFace({ a, showBalance = true, dim = false }: { a: any; showB
   const d = designFor(a);
   const net = NETWORKS[a.card_network ?? ''] ?? '';
   const isCard = a.type === 'debit_card' || a.type === 'credit_card';
-  const amount = a.type === 'credit_card' ? (a.available_credit ?? -a.owed) : a.balance;
+  const amount = a.type === 'credit_card' ? (a.available_credit ?? -a.owed) : shownBalance(a);
   const caption = a.type === 'credit_card' ? (a.available_credit != null ? 'Crédito disponible' : 'Saldo pendiente') : 'Saldo';
   return (
     <div className="cardface" style={{ background: `linear-gradient(135deg, ${d.colors[0]}, ${d.colors[0]} 55%, ${d.colors[1]})`, filter: dim ? 'brightness(.55) saturate(.8)' : undefined }} role="img" aria-label={`${a.name}, ${ACCOUNT_TYPES[a.type]}${a.last4 ? ` terminada en ${a.last4}` : ''}, ${caption} ${money(amount, a.currency)}`}>
@@ -139,7 +139,7 @@ function CardDetails({ a, accounts }: { a: any; accounts: any[] }) {
     const acc = o.account;
     return credit
       ? [['Crédito disponible', acc.available_credit], ['Saldo por pagar', acc.owed], ['Límite', acc.credit_limit], ['Gastado este mes', o.month_spent]]
-      : [['Saldo', acc.balance], ...(acc.reserved_virtual ? [['Reservado en metas', acc.reserved_virtual]] : []), ['Gastado este mes', o.month_spent], ...(acc.bank_confirmed_balance != null ? [['Confirmado por el banco', acc.bank_confirmed_balance]] : [])];
+      : [[acc.linked_name ? `Saldo (de ${acc.linked_name})` : 'Saldo', shownBalance(acc)], ...(acc.reserved_virtual ? [['Reservado en metas', acc.reserved_virtual]] : []), ['Gastado este mes', o.month_spent], ...(acc.bank_confirmed_balance != null ? [['Confirmado por el banco', acc.bank_confirmed_balance]] : [])];
   }, [o, credit]);
   if (error && !o) return <ErrorBlock error={error} retry={reload} />;
   if (loading && !o) return <div style={{ padding: 16 }}><LoadingBlock rows={4} /></div>;

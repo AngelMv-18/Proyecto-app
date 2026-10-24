@@ -49,6 +49,16 @@ async function account(db: Db, userId: string, accId: string, label = 'Cuenta') 
   return a;
 }
 
+/**
+ * Una tarjeta de débito vinculada usa el dinero de su cuenta: el movimiento se registra en esa cuenta
+ * (y se anota que se pagó con la tarjeta).
+ */
+export async function resolveLinked(db: Db, userId: string, accId: string | null | undefined) {
+  if (!accId) return { id: accId, card: null as any };
+  const c = await one(db, `SELECT id, name, linked_account_id FROM accounts WHERE id=$1 AND user_id=$2 AND type='debit_card' AND linked_account_id IS NOT NULL`, [accId, userId]);
+  return c ? { id: c.linked_account_id as string, card: c } : { id: accId, card: null as any };
+}
+
 export async function accountBalance(db: Db, accId: string, asOfExclusive?: string): Promise<number> {
   const r = await one<{ b: number }>(
     db,
@@ -89,6 +99,9 @@ type Row = Record<string, any>;
 /** Valida reglas contables y devuelve la fila normalizada. Lanza AppError con mensajes en español. */
 export async function validateTx(db: Db, userId: string, t: Row, excludeId?: string): Promise<Row> {
   const u = await userTz(db, userId);
+  const src = await resolveLinked(db, userId, t.account_id);
+  if (src.card) { t = { ...t, account_id: src.id, payment_method: t.payment_method || `Débito ${src.card.name}`.slice(0, 40) }; }
+  if (t.to_account_id) t = { ...t, to_account_id: (await resolveLinked(db, userId, t.to_account_id)).id };
   const acc = await account(db, userId, t.account_id, 'Cuenta de origen');
   if (acc.archived) throw badRequest('La cuenta de origen está archivada', 'account_archived', { account_id: 'Cuenta archivada' });
   const out: Row = { ...t, currency: acc.currency, tags: t.tags ?? [] };
