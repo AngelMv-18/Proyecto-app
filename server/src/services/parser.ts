@@ -107,12 +107,25 @@ function parseDate(text: string): string | null {
   return Number.isNaN(iso.getTime()) ? null : iso.toISOString();
 }
 
+/**
+ * Un aviso con un código real (OTP, clave temporal) se descarta. Mencionar la palabra no basta: los pies de página de los
+ * bancos dicen "nunca le solicitaremos su clave o PIN", y eso no debe hacer que se ignore una compra.
+ */
+function hasSecretCode(t: string) {
+  for (const m of t.matchAll(new RegExp(SECRET.source, 'g'))) {
+    const around = t.slice(m.index!, m.index! + m[0].length + 40);
+    if (/(nunca|jamas|no (?:te|le) (?:solicit|pedi)|no compart)/.test(t.slice(Math.max(0, m.index! - 50), m.index!))) continue;
+    if (/(?:es|:)?\s*\b\d{4,8}\b/.test(around.slice(m[0].length)) || /\b(?:es|sera|:)\s*[a-z0-9]{4,8}\b/.test(around.slice(m[0].length))) return true;
+  }
+  return false;
+}
+
 export function parseFinancialMessage(input: { subject?: string; body: string; from?: string; receivedAt?: string; id?: string }): ParsedMessage {
   const raw = `${input.subject ?? ''}\n${input.body}`;
   const text = raw.replace(/\s+/g, ' ');
   const t = strip(text);
 
-  if (SECRET.test(t)) return { kind: 'ignored', reason: 'Contiene códigos o claves: se descarta sin procesar' };
+  if (hasSecretCode(t)) return { kind: 'ignored', reason: 'Contiene códigos o claves: se descarta sin procesar' };
   if (DECLINED.test(t)) return { kind: 'ignored', reason: 'Transacción rechazada, cancelada o revertida: no se registra como gasto' };
 
   // Candidatos de importe (se ignoran los precedidos por "saldo").

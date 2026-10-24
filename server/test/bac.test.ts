@@ -52,6 +52,13 @@ describe('Avisos de BAC Credomatic', () => {
     expect((await u.ok(u.get(`/api/transactions/${r3.tx_id}`))).account_id).toBe(def.id);
   });
 
+  it('el pie de página "nunca le solicitaremos su clave o PIN" no hace que se descarte la compra; un código real sí', () => {
+    const pie = '<p>BAC Credomatic nunca le solicitará su clave, PIN o código de seguridad por correo. No comparta su contraseña.</p>';
+    expect(parseFinancialMessage({ body: htmlToText(BAC_TARJETA + pie) })).toMatchObject({ kind: 'movement', amount: L(372) });
+    expect(parseFinancialMessage({ body: 'Tu código de verificación es 482913. Compra por L 500.00' }).kind).toBe('ignored');
+    expect(parseFinancialMessage({ body: 'Su clave temporal: 7731. Transferencia por L 900.00' }).kind).toBe('ignored');
+  });
+
   it('una notificación rechazada de BAC no se registra', () => {
     const p = parseFinancialMessage({ body: htmlToText(BAC_TARJETA.replace('se ha realizado la siguiente transacción', 'la siguiente transacción fue rechazada')) });
     expect(p.kind).toBe('ignored');
