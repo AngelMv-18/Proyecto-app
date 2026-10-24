@@ -3,7 +3,7 @@ import { api } from '../api';
 import { dateTime } from '../format';
 import { Icon } from '../icons';
 import { BiometricLock } from './Appearance';
-import { Field, Sheet, Switch, confirmDialog, nav, toast, toastError, useAction, useApi } from '../ui';
+import { Field, Sheet, Switch, confirmDialog, nav, toast, toastError, useAction, useApi, useIsAdmin } from '../ui';
 
 const LOCALES = [['es-HN', 'Honduras'], ['es-MX', 'México'], ['es-GT', 'Guatemala'], ['es-SV', 'El Salvador'], ['es-ES', 'España'], ['es-CO', 'Colombia'], ['en-US', 'English (US)']];
 const CURRENCIES = ['HNL', 'USD', 'EUR', 'MXN', 'GTQ', 'COP', 'CRC', 'NIO'];
@@ -28,6 +28,7 @@ function DataSheet({ kind, onClose }: { kind: 'restore' | 'wipe' | 'delete'; onC
 }
 
 function TwoFactor() {
+  const admin = useIsAdmin();
   const { data: st } = useApi<any>('/api/me/2fa');
   const [pw, setPw] = useState(''); const [setup, setSetup] = useState<any>(null); const [code, setCode] = useState(''); const [codes, setCodes] = useState<string[] | null>(null);
   const [run, busy] = useAction();
@@ -50,7 +51,7 @@ function TwoFactor() {
           <p className="small" style={{ marginTop: 0 }}>1. Escanea el código con tu app de autenticación (o copia la clave).</p>
           <div style={{ width: 180, background: '#fff', padding: 8, borderRadius: 12 }} dangerouslySetInnerHTML={{ __html: setup.qr_svg }} aria-label="Código QR para la app de autenticación" role="img" />
           <p className="xs" style={{ overflowWrap: 'anywhere' }}>Clave: <code style={{ userSelect: 'all' }}>{setup.secret}</code></p>
-          {!st.secret_encrypted && <p className="hint warn">Este servidor no tiene APP_ENCRYPTION_KEY: el secreto se guarda sin cifrar en la base de datos. Defínela para cifrarlo.</p>}
+          {!st.secret_encrypted && admin && <p className="hint warn">Este servidor no tiene APP_ENCRYPTION_KEY: el secreto se guarda sin cifrar en la base de datos. Defínela para cifrarlo.</p>}
           <Field id="e2c" label="2. Escribe el código que muestra la app"><input id="e2c" className="input" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" /></Field>
           <button className="btn primary" disabled={busy || code.length < 6} onClick={async () => { const r = await run(() => api.post('/api/me/2fa/enable', { code }), 'Verificación en dos pasos activada'); if (r) { setCodes(r.recovery_codes); setSetup(null); setCode(''); } }}>Activar</button>
         </div>
@@ -62,6 +63,7 @@ function TwoFactor() {
 const b64ToBytes = (b64: string) => { const p = '='.repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
 
 function PushCard() {
+  const admin = useIsAdmin();
   const { data: st, reload } = useApi<any>('/api/push/status');
   const [run, busy] = useAction();
   const [here, setHere] = useState<boolean | null>(null);
@@ -87,7 +89,9 @@ function PushCard() {
   };
   return (
     <section className="card"><h2>Notificaciones y resúmenes</h2>
-      {!st.configured ? <p className="small muted" style={{ marginTop: 0 }}><span className="badge">No configurado</span> El servidor no tiene claves VAPID ({st.missing.join(', ')}). Genera unas con <code>npx web-push generate-vapid-keys</code>. Mientras tanto, las alertas y resúmenes aparecen dentro de la app.</p>
+      {!st.configured ? (admin
+          ? <p className="small muted" style={{ marginTop: 0 }}><span className="badge">No configurado</span> El servidor no tiene claves VAPID ({st.missing.join(', ')}). Genera unas con <code>npx web-push generate-vapid-keys</code>. Mientras tanto, las alertas y resúmenes aparecen dentro de la app.</p>
+          : <p className="small muted" style={{ marginTop: 0 }}>Las notificaciones en el teléfono aún no están disponibles. Mientras tanto, verás tus alertas y resúmenes dentro de la app.</p>)
         : !supported ? <p className="small muted">Este navegador no admite notificaciones push. En Android usa Chrome e instala la app (“Agregar a pantalla de inicio”).</p>
         : <div className="row wrap" style={{ marginBottom: 10 }}>
             <span className={`badge ${here ? 'teal' : ''}`}>{here ? 'Activas en este dispositivo' : 'Inactivas en este dispositivo'}</span><span className="xs faint">{st.devices} dispositivo(s)</span>

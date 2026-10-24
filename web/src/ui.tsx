@@ -141,6 +141,12 @@ export function Switch({ label, checked, onChange, hint }: { label: string; chec
 }
 
 /** Ejecuta una acción async con estado de carga y errores como toast; devuelve [run, busy]. */
+/** ¿La sesión es del administrador? Los mensajes técnicos (configuración del servidor) solo se le muestran a él. */
+export function useIsAdmin() {
+  const { data } = useApi<any>('/api/appearance');
+  return Boolean(data?.is_admin);
+}
+
 export function useAction() {
   const [busy, setBusy] = useState(false);
   const run = useCallback(async <T,>(fn: () => Promise<T>, ok?: string): Promise<T | undefined> => {

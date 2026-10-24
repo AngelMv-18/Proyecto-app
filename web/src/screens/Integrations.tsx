@@ -44,7 +44,8 @@ function GmailCard({ g, accounts }: { g: any; accounts: any[] }) {
   useEffect(() => {
     const s = query.get('gmail');
     if (s === 'ok') toast('Gmail vinculado. Estamos revisando tus correos recientes; lo detectado aparecerá en «Revisión».', 'ok');
-    if (s === 'error') toast(GMAIL_ERRORS[query.get('motivo') ?? ''] ?? 'No se pudo completar la vinculación con Gmail. Inténtalo de nuevo.', 'error');
+    const motivo = query.get('motivo') ?? '';
+    if (s === 'error') toast((motivo === 'invalid_client' && !g.is_admin ? 'Hubo un problema con la configuración de Gmail. Avísale al administrador de la app.' : GMAIL_ERRORS[motivo]) ?? 'No se pudo completar la vinculación con Gmail. Inténtalo de nuevo.', 'error');
     if (s === 'cancelado') toast('Vinculación cancelada. No se concedió ningún permiso.');
   }, []); // eslint-disable-line
   const open = accounts.filter((a) => !a.archived);

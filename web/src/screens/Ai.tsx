@@ -2,13 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { PAY_METHODS, isoLocalInput, money, toMinor } from '../format';
 import { Icon } from '../icons';
-import { Field, LoadingBlock, Progress, toastError, useApi } from '../ui';
+import { Field, LoadingBlock, Progress, toastError, useApi, useIsAdmin } from '../ui';
+
+/** Negritas **así** en las respuestas (sin interpretar HTML). */
+const rich = (text: string) => text.split(/(\*\*[^*]+\*\*)/g).map((p, i) => (p.startsWith('**') && p.endsWith('**') ? <b key={i}>{p.slice(2, -2)}</b> : p));
 
 type Msg = { role: 'user' | 'assistant'; content: string; meta?: string };
 const SUGGESTIONS = ['¿Cuánto puedo gastar esta semana?', '¿En qué categoría estoy gastando más?', '¿Qué gastos puedo reducir?', '¿Qué cambió respecto al mes anterior?', '¿Cómo voy con mis metas?', '¿Cuánto me quedará después de mis compromisos?'];
 
 function Chat() {
   const { data: st } = useApi<any>('/api/ai/status');
+  const admin = useIsAdmin();
   const [msgs, setMsgs] = useState<Msg[]>([]); const [text, setText] = useState(''); const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [msgs, busy]);
@@ -18,17 +22,17 @@ function Chat() {
     setMsgs(next); setText(''); setBusy(true);
     try {
       const r = await api.post('/api/ai/chat', { messages: next.map(({ role, content }) => ({ role, content })) });
-      setMsgs([...next, { role: 'assistant', content: r.answer, meta: `${r.mode === 'llm' ? 'Modelo de lenguaje' : 'Modo local (reglas)'}${r.tools_used.length ? ` · consultó: ${r.tools_used.join(', ')}` : ''}` }]);
+      setMsgs([...next, { role: 'assistant', content: r.answer, meta: admin ? `${r.mode === 'llm' ? 'Modelo de lenguaje' : 'Modo local (reglas)'}${r.tools_used.length ? ` · consultó: ${r.tools_used.join(', ')}` : ''}` : undefined }]);
     } catch (e) { toastError(e); setMsgs(next); } finally { setBusy(false); }
   };
   return (
     <div className="stack">
-      <div className={`alert ${st?.llm_configured ? 'info' : ''}`}><Icon name="shield" size={20} /><div className="small"><b>{st?.llm_configured ? 'Conectado a un modelo de lenguaje' : 'Modo local'}.</b> {st?.privacy} NOVA AI solo lee datos agregados de tu cuenta con herramientas de solo lectura; nunca ve contraseñas ni credenciales.</div></div>
+      {admin && st && <div className={`alert ${st.llm_configured ? 'info' : ''}`}><Icon name="shield" size={20} /><div className="small"><b>Solo tú lo ves (administrador):</b> {st.privacy}</div></div>}
       <section className="card" aria-live="polite">
         {!msgs.length && <div><h2>Pregúntale a NOVA</h2><div className="chips" style={{ flexWrap: 'wrap' }}>{SUGGESTIONS.map((s) => <button key={s} className="chip" onClick={() => send(s)} style={{ whiteSpace: 'normal', textAlign: 'left', padding: '8px 14px' }}>{s}</button>)}</div></div>}
         <div className="chat">
           {msgs.map((m, i) => (
-            <div key={i} className={`bubble ${m.role === 'user' ? 'user' : 'bot'}`}>{m.content}{m.meta && <div className="xs faint" style={{ marginTop: 6 }}>{m.meta}</div>}</div>
+            <div key={i} className={`bubble ${m.role === 'user' ? 'user' : 'bot'}`}>{m.role === 'user' ? m.content : rich(m.content)}{m.meta && <div className="xs faint" style={{ marginTop: 6 }}>{m.meta}</div>}</div>
           ))}
           {busy && <div className="bubble bot" aria-busy="true"><span className="muted">NOVA está calculando…</span></div>}
           <div ref={end} />

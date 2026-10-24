@@ -157,7 +157,9 @@ test('resúmenes: el resumen semanal se ve en Informes y push informa si no est�
   await expect(page.getByRole('heading', { name: 'Resumen de la semana' })).toBeVisible();
   await expect(page.getByText('Sin movimientos confirmados en este período.')).toBeVisible();
   await page.goto('/#/perfil');
-  await expect(page.getByText(/no tiene claves VAPID/)).toBeVisible();
+  // El administrador ve el detalle técnico; los demás, un aviso sencillo sin nombres de variables.
+  await expect(page.getByText(/no tiene claves VAPID/).or(page.getByText(/notificaciones en el teléfono aún no están disponibles/))).toBeVisible();
+  if (!(await page.getByText(/no tiene claves VAPID/).count())) await expect(page.getByText(/VAPID|ANTHROPIC|GOOGLE_/)).toHaveCount(0);
 });
 
 test('billetera: la tarjeta con banco se ve en la pila y su detalle muestra fondos y pagos agendados', async ({ page }) => {

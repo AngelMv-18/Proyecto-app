@@ -154,7 +154,7 @@ export type AiResult = { answer: string; mode: 'llm' | 'local'; tools_used: stri
 export function aiStatus() {
   return config.ai.apiKey
     ? { llm_configured: true, mode: 'llm', model: config.ai.model, privacy: 'Las preguntas y los resultados agregados de las herramientas se envían a la API de Anthropic para generar la respuesta. No se envían contraseñas ni credenciales.' }
-    : { llm_configured: false, mode: 'local', missing: ['ANTHROPIC_API_KEY'], privacy: 'Modo local: las respuestas se calculan en tu servidor con reglas deterministas; no se envía nada a terceros. Para respuestas conversacionales libres define ANTHROPIC_API_KEY.' };
+    : { llm_configured: false, mode: 'local', missing: ['ANTHROPIC_API_KEY'], privacy: 'NOVA AI está en modo local: responde con reglas fijas en tu servidor y no envía nada a terceros. Para que converse libremente, agrega ANTHROPIC_API_KEY en Render (tiene costo por uso). Tus invitados no ven este aviso.' };
 }
 
 export async function askNova(db: Db, userId: string, history: { role: 'user' | 'assistant'; content: string }[], f: typeof fetch = fetch): Promise<AiResult> {
@@ -280,5 +280,5 @@ export async function localAnswer(db: Db, userId: string, q: string): Promise<Ai
     const h: any = await run('salud_financiera');
     return R(`Salud financiera: **${h.score ?? 'sin datos'}/100 (${h.label})**. ${h.note}\n${h.parts.filter((p: any) => p.score != null).map((p: any) => `• ${p.label}: ${p.score}/100 — ${p.detail}`).join('\n')}`);
   }
-  return R(`No entendí bien tu pregunta (en modo local solo reconozco preguntas concretas sobre tus datos). Esto es lo que puedo decirte ahora:\n\n${await snapshot()}\n\n${HELP}`);
+  return R(`No entendí bien tu pregunta. Esto es lo que puedo decirte ahora:\n\n${await snapshot()}\n\n${HELP}`);
 }

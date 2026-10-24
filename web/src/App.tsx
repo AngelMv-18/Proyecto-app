@@ -50,7 +50,7 @@ const GOOGLE_ERRORS: Record<string, string> = {
   oauth_invalid: 'No se pudo validar el inicio de sesión con Google. Inténtalo de nuevo.',
   estado_vencido: 'El inicio de sesión tardó demasiado. Inténtalo de nuevo.',
   cancelado: 'Cancelaste el inicio de sesión con Google.',
-  not_configured: 'El acceso con Google aún no está configurado en este servidor.',
+  not_configured: 'El acceso con Google aún no está disponible. Usa tu correo y contraseña.',
   google_mismatch: 'Esa cuenta ya está vinculada a otro usuario de Google.',
   email_taken: 'Ya existe una cuenta con ese correo: inicia sesión con tu contraseña.',
 };
