@@ -269,3 +269,13 @@ test('comentarios: un usuario envía un comentario y lo ve en su lista', async (
   await expect(page.getByText('¡Gracias! Tu comentario llegó al administrador.')).toBeVisible();
   await expect(page.getByText('Me gustaría ver mis gastos por semana')).toBeVisible();
 });
+
+test('compartir: solo el administrador ve la opción y puede crear invitaciones', async ({ page }) => {
+  await register(page);
+  const isAdmin = (await (await page.request.get('/api/appearance')).json()).is_admin;
+  await page.goto('/#/perfil');
+  await expect(page.getByText('Comentarios y sugerencias')).toBeVisible();
+  await expect(page.getByText('Compartir app', { exact: true })).toHaveCount(isAdmin ? 1 : 0);
+  const r = await page.request.post('/api/invites', { headers: { 'x-requested-with': 'nova' }, data: { max_uses: 1, days: 1 } });
+  expect(r.status()).toBe(isAdmin ? 200 : 403);
+});

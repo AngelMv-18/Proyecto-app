@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ApiError, api } from './api';
 import { setFmt } from './format';
 import { Icon, Logo } from './icons';
-import { ConfirmHost, Field, LoadingBlock, Sheet, Toasts, nav, toast, toastError, useApi, useRoute } from './ui';
+import { ConfirmHost, Field, LoadingBlock, Sheet, Toasts, nav, toast, toastError, useApi, useIsAdmin, useRoute } from './ui';
 import { TxForm } from './components/TxForm';
 import { Home } from './screens/Home';
 import { Transactions } from './screens/Transactions';
@@ -40,7 +40,7 @@ const MAIN = [
 ];
 const MORE = [
   { to: '/cuentas', label: 'Cuentas', icon: 'wallet' }, { to: '/metas', label: 'Metas', icon: 'target' }, { to: '/deudas', label: 'Deudas', icon: 'scale' },
-  { to: '/recurrentes', label: 'Recurrentes', icon: 'repeat' }, { to: '/informes', label: 'Informes', icon: 'chart' }, { to: '/integraciones', label: 'Integraciones', icon: 'plug' }, { to: '/apariencia', label: 'Apariencia', icon: 'spark' }, { to: '/compartir', label: 'Compartir app', icon: 'send' }, { to: '/comentarios', label: 'Comentarios', icon: 'edit' },
+  { to: '/recurrentes', label: 'Recurrentes', icon: 'repeat' }, { to: '/informes', label: 'Informes', icon: 'chart' }, { to: '/integraciones', label: 'Integraciones', icon: 'plug' }, { to: '/apariencia', label: 'Apariencia', icon: 'spark', userLabel: 'Bloqueo con huella' }, { to: '/compartir', label: 'Compartir app', icon: 'send', admin: true }, { to: '/comentarios', label: 'Comentarios', icon: 'edit' },
 ];
 
 const GOOGLE_ERRORS: Record<string, string> = {
@@ -145,6 +145,7 @@ function InviteWhileLoggedIn({ me }: { me: any }) {
 
 function Shell({ me }: { me: any }) {
   const { path } = useRoute();
+  const admin = useIsAdmin();
   const tx = useSyncExternalStore((f) => { txSubs.add(f); return () => txSubs.delete(f); }, () => txState);
   const [search, setSearch] = useState(false);
   const [notif, setNotif] = useState(false);
@@ -196,7 +197,7 @@ function Shell({ me }: { me: any }) {
         <div style={{ padding: '4px 10px 14px' }}><Logo /></div>
         {MAIN.map((m) => <NavLink key={m.to} it={m} />)}
         <div className="sep" /><div className="group">Gestión</div>
-        {MORE.map((m) => <a key={m.to} href={`#${m.to}`} className="navitem" aria-current={base === m.to ? 'page' : undefined}><Icon name={m.icon} /><span>{m.label}</span></a>)}
+        {MORE.filter((m: any) => admin || !m.admin).map((m: any) => <a key={m.to} href={`#${m.to}`} className="navitem" aria-current={base === m.to ? 'page' : undefined}><Icon name={m.icon} /><span>{admin || !m.userLabel ? m.label : m.userLabel}</span></a>)}
       </nav>
       <div style={{ flex: 1, minWidth: 0 }}>
         <main className="main" id="contenido">

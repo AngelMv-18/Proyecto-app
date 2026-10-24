@@ -128,6 +128,7 @@ function FxRates({ me }: { me: any }) {
 }
 
 export function Profile({ me }: { me: any }) {
+  const admin = useIsAdmin();
   const [name, setName] = useState(me.display_name); const [locale, setLocale] = useState(me.locale); const [cur, setCur] = useState(me.currency); const [tz, setTz] = useState(me.timezone);
   const a = me.settings.alerts;
   const [al, setAl] = useState({ ...a, limit: a.large_expense_limit ? String(a.large_expense_limit / 100) : '' });
@@ -145,8 +146,10 @@ export function Profile({ me }: { me: any }) {
       <section className="card"><h2>Gestión</h2><div className="list">
         <Link to="/cuentas" icon="wallet" label="Cuentas" sub="Efectivo, bancos, tarjetas y conciliación" /><Link to="/metas" icon="target" label="Metas de ahorro" sub="Progreso y planes" /><Link to="/deudas" icon="scale" label="Deudas y préstamos" sub="Lo que debo y me deben" />
         <Link to="/recurrentes" icon="repeat" label="Pagos recurrentes" sub="Suscripciones, facturas y servicios" /><Link to="/informes" icon="chart" label="Informes" sub="Estados, flujo de caja y exportación" /><Link to="/integraciones" icon="plug" label="Integraciones" sub="Vincular tu Gmail" /><Link to="/revision" icon="check" label="Revisión de movimientos" sub="Detectados e importados" />
-        <Link to="/apariencia" icon="spark" label="Apariencia y bloqueo con huella" sub="Colores, nombre, logotipo y desbloqueo biométrico" />
-        <Link to="/compartir" icon="send" label="Compartir app" sub="Invita a amigos y familiares a probarla" />
+        {admin ? <Link to="/apariencia" icon="spark" label="Apariencia y bloqueo con huella" sub="Colores, nombre, logotipo y desbloqueo biométrico" />
+          : <Link to="/apariencia" icon="spark" label="Bloqueo con huella" sub="Pide tu huella al abrir la app" />}
+        {/* Solo el administrador invita personas (el servidor también lo exige). */}
+        {admin && <Link to="/compartir" icon="send" label="Compartir app" sub="Invita a amigos y familiares a probarla" />}
         <Link to="/comentarios" icon="edit" label="Comentarios y sugerencias" sub="Cuéntanos qué falla o qué te gustaría" />
       </div></section>
       <div className="grid cols-2">
