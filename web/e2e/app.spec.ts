@@ -279,3 +279,27 @@ test('compartir: solo el administrador ve la opción y puede crear invitaciones'
   const r = await page.request.post('/api/invites', { headers: { 'x-requested-with': 'nova' }, data: { max_uses: 1, days: 1 } });
   expect(r.status()).toBe(isAdmin ? 200 : 403);
 });
+
+test('revisión: si no se sabe la tarjeta o cuenta, la app pregunta y no deja confirmar hasta elegir', async ({ page }) => {
+  const email = await register(page);
+  const post = (url: string, data: any) => page.request.post(url, { headers: { 'x-requested-with': 'nova' }, data }).then((r) => r.json());
+  const caja = await post('/api/accounts', { name: 'Caja chica', type: 'cash', opening_balance: 100000 });
+  await post('/api/accounts', { name: 'Banco Prueba', type: 'bank', opening_balance: 500000 });
+  const { Client } = await import('pg');
+  const db = new Client({ connectionString: 'postgres://nova:nova@localhost:5432/nova_e2e' }); await db.connect();
+  await db.query(`INSERT INTO transactions(user_id,type,amount,currency,occurred_at,account_id,merchant,status,source,needs_review,account_pending,review_hint)
+    SELECT u.id,'expense',15000,'HNL',now(),$2,'Supercell (Google Play)','pending','email',true,true,'Cobro de USD 1.99. Importe estimado en HNL con un tipo de cambio de referencia (26.5): corrígelo con el monto real que cobró tu banco.'
+    FROM users u WHERE u.email=$1`, [email, caja.id]);
+  await db.end();
+  await page.goto('/#/revision');
+  await expect(page.getByText('necesitan tu ayuda')).toBeVisible();
+  await expect(page.getByText('¿De qué tarjeta o cuenta es este gasto?')).toBeVisible();
+  await expect(page.getByText(/Importe estimado en HNL/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Confirmar$/ }).first()).toBeDisabled();
+  await page.getByRole('button', { name: 'Banco Prueba' }).click();
+  await expect(page.getByText('¿De qué tarjeta o cuenta es este gasto?')).toHaveCount(0);
+  await page.getByRole('button', { name: /Confirmar$/ }).first().click();
+  await expect(page.getByText('Todo al día')).toBeVisible();
+  await page.goto('/#/cuentas');
+  await expect(page.getByText('HNL 4,850.00').first()).toBeVisible(); // 5,000 − 150, salió de la cuenta elegida
+});

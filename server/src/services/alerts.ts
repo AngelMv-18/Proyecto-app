@@ -55,8 +55,8 @@ export async function refreshAlerts(db: Db, userId: string) {
     }
   }
   if (prefs.review) {
-    const n = (await one<{ n: number }>(db, `SELECT count(*)::int n FROM transactions WHERE user_id=$1 AND needs_review AND status='pending'`, [userId]))!.n;
-    if (n > 0) out.push({ kind: 'review', severity: 'info', key: `review:${today}`, title: `${n} movimiento(s) esperan tu revisión`, body: 'Los movimientos detectados no afectan tus saldos hasta que los confirmes.' });
+    const r = (await one<{ n: number; ask: number }>(db, `SELECT count(*)::int n, count(*) FILTER (WHERE account_pending)::int ask FROM transactions WHERE user_id=$1 AND needs_review AND status='pending'`, [userId]))!;
+    if (r.n > 0) out.push({ kind: 'review', severity: 'info', key: `review:${today}`, title: `${r.n} movimiento(s) esperan tu revisión`, body: r.ask ? `${r.ask} necesita(n) que elijas de qué tarjeta o cuenta son. Los movimientos detectados no afectan tus saldos hasta que los confirmes.` : 'Los movimientos detectados no afectan tus saldos hasta que los confirmes.' });
   }
   if (prefs.duplicates) {
     for (const t of await rows(db, `SELECT id, amount, merchant, currency FROM transactions WHERE user_id=$1 AND needs_review AND status='pending' AND duplicate_of IS NOT NULL`, [userId])) {

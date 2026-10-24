@@ -12,6 +12,7 @@ export type ParsedMessage = {
   occurred_at?: string;
   card_last4?: string | null;
   bank?: string | null; // código del banco emisor (ver web/src/banks.ts), si se reconoce
+  payment_hint?: string | null; // "Forma de pago" que indica el recibo (p. ej. "Bac débito Angel")
   description?: string | null;
   confidence?: 'alta' | 'media' | 'baja';
   external_id?: string | null;
@@ -71,6 +72,9 @@ const BANKS: [RegExp, string][] = [
   [/tigo money/, 'tigo_money'], [/\btengo\b/, 'tengo'],
 ];
 
+/** Código del banco que aparece en un texto, si lo hay. */
+export const bankOf = (text: string) => BANKS.find(([re]) => re.test(strip(text)))?.[1] ?? null;
+
 // Muchos avisos (p. ej. BAC) vienen como tabla: una fila de etiquetas y debajo sus valores, o "Etiqueta" y su valor en la línea siguiente.
 const LABELS: Record<string, 'merchant' | 'amount' | 'date' | 'reference'> = {
   comercio: 'merchant', establecimiento: 'merchant', beneficiario: 'merchant', destinatario: 'merchant', 'lugar': 'merchant',
@@ -94,7 +98,22 @@ function tableFields(body: string) {
   return out;
 }
 
+const MONTHS: Record<string, string> = { ene: '01', feb: '02', mar: '03', abr: '04', may: '05', jun: '06', jul: '07', ago: '08', sep: '09', set: '09', oct: '10', nov: '11', dic: '12' };
+/** "24 oct 2026 10:01:48 a.m. GMT-6" (recibos de Google, Apple, etc.) */
+function parseTextDate(text: string): string | null {
+  const m = strip(text).match(/\b(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\.?\s+(?:de\s+)?(\d{4})(?:[\s,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*(?:([ap])\.?\s?m\.?)?)?(?:\s*gmt\s*([+-]\d{1,2}))?/);
+  if (!m) return null;
+  let hh = m[4] ? Number(m[4]) : 12; const mm = m[5] ?? '00';
+  if (m[6] === 'p' && hh < 12) hh += 12; if (m[6] === 'a' && hh === 12) hh = 0;
+  const off = m[7] ? Number(m[7]) : -6; // sin indicación: hora de Honduras
+  const sign = off < 0 ? '-' : '+';
+  const d = new Date(`${m[3]}-${MONTHS[m[2]]}-${m[1].padStart(2, '0')}T${String(hh).padStart(2, '0')}:${mm}:00${sign}${String(Math.abs(off)).padStart(2, '0')}:00`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function parseDate(text: string): string | null {
+  const textual = parseTextDate(text);
+  if (textual) return textual;
   // AAAA/MM/DD[-HH:MM] (BAC tarjetas) o DD/MM/AAAA [a las HH:MM]
   const ymd = text.match(/\b(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:[\sT-]+(\d{1,2}):(\d{2}))?/);
   const dmy = text.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s+(?:a las\s+)?(\d{1,2}):(\d{2}))?/);
@@ -152,7 +171,7 @@ export function parseFinancialMessage(input: { subject?: string; body: string; f
 
   const isIncome = INCOME_KW.test(t);
   const isExpense = EXPENSE_KW.test(t);
-  const strong = /(aprobad|se realizo|se ha realizado|realizad[ao]|pagaste|enviaste|recibiste|acreditad|deposito|retiro|cargo|debito|consumo de)/.test(t) || /(referencia|autorizacion)\s*[:#]?\s*[a-z0-9]{4}/.test(t);
+  const strong = /(aprobad|recibo de tu pedido|numero de pedido|compraste|se realizo|se ha realizado|realizad[ao]|pagaste|enviaste|recibiste|acreditad|deposito|retiro|cargo|debito|consumo de)/.test(t) || /(referencia|autorizacion)\s*[:#]?\s*[a-z0-9]{4}/.test(t);
   if (NOISE.test(t) && !strong) return { kind: 'ignored', reason: 'Parece publicidad o aviso general' };
   if (!isIncome && !isExpense) return { kind: 'ignored', reason: 'No se reconoce como movimiento (compra, pago, depósito...)' };
   const type: 'income' | 'expense' = isIncome && !/(compra|consumo|pagaste|enviaste|retiro)/.test(t) ? 'income' : isExpense ? 'expense' : 'income';
@@ -161,14 +180,27 @@ export function parseFinancialMessage(input: { subject?: string; body: string; f
   let merchant = tf.merchant ? tf.merchant.replace(/\s+/g, ' ').slice(0, 80) : merchantM ? merchantM[1].trim().replace(/\s+/g, ' ') : null;
   // Capturas que no son un comercio ("en su cuenta", "a continuación"...).
   if (merchant && /^(su|tu|sus|tus|la|el|los|las|un|una|continuacion|cuenta|tarjeta|lps?|hnl|usd)\b/.test(strip(merchant))) merchant = null;
-  const refM = tf.reference ? [null, tf.reference.replace(/\s+/g, '')] as const : text.match(/(?:referencia|ref\.?|autorizaci[oó]n|aprobaci[oó]n|n[úu]mero de (?:transacci[oó]n|operaci[oó]n)|no\.? (?:de )?(?:transacci[oó]n|operaci[oó]n))\s*[:#]?\s*([A-Z0-9-]{4,24})/i);
-  const reference = refM ? refM[1].toUpperCase() : null;
+  // Recibos de tiendas en línea (Google Play...): comercio, artículo y forma de pago salen del propio recibo.
+  const lines = input.body.split('\n').map((l) => l.trim()).filter(Boolean);
+  const payM = input.body.match(/forma\s+de\s+pago\s*:?\s*([^\n]{3,60})/i);
+  const paymentHint = payM ? payM[1].trim() : null;
+  let item: string | null = null;
+  if (/google play/.test(t)) {
+    const v = text.match(/(?:pedido a|compraste[^.]*?\bde)\s+(.{2,40}?)(?=\s+(?:en google play|costo|articulos?|$)|[.,]|\s{2,})/i);
+    const vendor = v ? v[1].trim() : null;
+    merchant = vendor && !/^google play$/i.test(vendor) ? `${vendor} (Google Play)` : 'Google Play';
+    const ai = lines.findIndex((l, i) => strip(l) === 'articulo' && strip(lines[i + 1] ?? '') === 'precio');
+    if (ai >= 0 && lines[ai + 2]) item = lines[ai + 2];
+    else { const ar = lines.findIndex((l) => strip(l) === 'articulos'); if (ar >= 0 && lines[ar + 1]) item = lines[ar + 1]; }
+  }
+  const refM = tf.reference ? [null, tf.reference.replace(/\s+/g, '')] as const : text.match(/(?:referencia|ref\.?|autorizaci[oó]n|aprobaci[oó]n|n[úu]mero de (?:transacci[oó]n|operaci[oó]n|pedido)|no\.? (?:de )?(?:transacci[oó]n|operaci[oó]n|pedido))\s*[:#]?\s*([A-Z0-9][A-Z0-9.-]{3,31})/i);
+  const reference = refM ? refM[1].toUpperCase().replace(/[.\-]+$/, '') : null;
   const cardM = t.match(/(?:terminad[ao]s? en|termina en|\*{2,}|x{2,}|(?:visa|mastercard|master card|amex|american express|tarjeta)\s+(?:no\.?\s*)?)\s*(\d{4})\b/);
   const bank = BANKS.find(([re]) => re.test(t))?.[1] ?? null;
 
-  const occurred = (tf.date && parseDate(tf.date)) || parseDate(text) || input.receivedAt || new Date().toISOString();
+  const occurred = (tf.date && parseDate(tf.date)) || parseDate(input.body.replace(/\s+/g, ' ')) || parseDate(text) || input.receivedAt || new Date().toISOString();
   // Sin comercio (p. ej. "transacción en su cuenta ****6480"): se describe el movimiento para que se reconozca en Revisión.
-  const description = merchant ? null : [
+  const description = merchant ? (item ? `${item}`.slice(0, 120) : null) : [
     /monto enviado|transferencia (?:enviada|realizada)|enviaste/.test(t) ? 'Envío / transferencia' : type === 'income' ? 'Depósito / abono' : 'Transacción',
     cardM ? `${/tarjeta|visa|mastercard|amex/.test(t) && !/en su cuenta|en tu cuenta/.test(t) ? 'tarjeta' : 'cuenta'} ****${cardM[1]}` : null,
   ].filter(Boolean).join(' · ');
@@ -178,7 +210,7 @@ export function parseFinancialMessage(input: { subject?: string; body: string; f
     : input.id ? `msg:${input.id}` : `txt:${createHash('sha256').update(`${pref.value}|${merchant}|${occurred.slice(0, 13)}`).digest('hex').slice(0, 24)}`;
 
   return {
-    kind: 'movement', type, amount: pref.value, currency: pref.currency, merchant, reference, occurred_at: occurred, card_last4: cardM?.[1] ?? null, bank, description,
+    kind: 'movement', type, amount: pref.value, currency: pref.currency, merchant, reference, occurred_at: occurred, card_last4: cardM?.[1] ?? null, bank, description, payment_hint: paymentHint,
     bank_state: PENDING.test(t) ? 'pending' : 'approved',
     confidence: merchant && reference ? 'alta' : merchant || reference ? 'media' : 'baja',
     external_id: external,

@@ -11,8 +11,10 @@ import { newOAuthState, takeOAuthState } from './google.js';
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 // Avisos de bancos y billeteras de Honduras: por remitente o por palabras típicas de una notificación de movimiento.
 // Se excluyen Promociones y Redes sociales, donde llegan las ofertas que también dicen "compra" o "pago".
-const BANK_SENDERS = ['bac', 'baccredomatic', 'credomatic', 'bancatlan', 'atlantida', 'ficohsa', 'banpais', 'bancodeoccidente', 'davivienda', 'lafise', 'banrural', 'promerica', 'bancoazteca', 'cuscatlan', 'bancopopular', 'ficensa', 'banhcafe', 'bantrab', 'tigo', 'tengo'];
-export const DEFAULT_QUERY = `-category:promotions -category:social (from:(${BANK_SENDERS.join(' OR ')}) OR subject:(transacción OR transaccion OR compra OR consumo OR débito OR debito OR depósito OR deposito OR transferencia OR retiro OR movimiento) OR "BAC Credomatic")`;
+const BANK_SENDERS = ['bac', 'baccredomatic', 'credomatic', 'bancatlan', 'atlantida', 'ficohsa', 'banpais', 'bancodeoccidente', 'davivienda', 'lafise', 'banrural', 'promerica', 'bancoazteca', 'cuscatlan', 'bancopopular', 'ficensa', 'banhcafe', 'bantrab', 'tigo', 'tengo',
+  // Recibos de compras en línea y suscripciones (Google Play, PayPal, Apple, Netflix, Spotify, Uber…)
+  'googleplay-noreply@google.com', 'payments-noreply@google.com', 'paypal', 'apple.com', 'netflix', 'spotify', 'uber.com'];
+export const DEFAULT_QUERY = `-category:promotions -category:social (from:(${BANK_SENDERS.join(' OR ')}) OR subject:(transacción OR transaccion OR compra OR consumo OR débito OR debito OR depósito OR deposito OR transferencia OR retiro OR movimiento OR recibo OR receipt OR factura) OR "BAC Credomatic")`;
 const FIRST_WINDOW_DAYS = 30;
 const MAX_MESSAGES = 150;
 
@@ -149,7 +151,7 @@ export async function syncGmail(db: Db, userId: string, f: typeof fetch = fetch)
     const hd = (n: string) => msg.payload?.headers?.find((x: any) => x.name.toLowerCase() === n)?.value ?? '';
     const parsed = parseFinancialMessage({ subject: hd('subject'), body: bodyOf(msg.payload), from: hd('from'), receivedAt: new Date(Number(msg.internalDate)).toISOString(), id });
     if (parsed.kind === 'ignored') { stats.ignored++; if (parsed.reason && stats.ignored_reasons.length < 5) stats.ignored_reasons.push(parsed.reason); continue; }
-    const r = await ingestParsed(db, userId, parsed, { account_id: cfg.default_account_id, source: 'email', label: `Correo: ${hd('subject').slice(0, 80)}` });
+    const r = await ingestParsed(db, userId, parsed, { account_id: cfg.default_account_id, source: 'email', label: `Correo: ${hd('subject').slice(0, 80)}`, ask_if_unmatched: true });
     if (r.outcome === 'created') stats.created++;
     else if (r.outcome === 'duplicate') stats.duplicates++;
     else { stats.ignored++; if (r.reason && stats.ignored_reasons.length < 5) stats.ignored_reasons.push(r.reason); }

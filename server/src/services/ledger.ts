@@ -222,7 +222,7 @@ async function findDuplicate(db: Db, userId: string, t: Row) {
 
 export type CreateResult = { tx: Row; duplicate: boolean; duplicate_of?: string; flagged?: boolean };
 
-export async function createTransaction(db: Db, userId: string, input: TxInput): Promise<CreateResult> {
+export async function createTransaction(db: Db, userId: string, input: TxInput & { account_pending?: boolean; review_hint?: string | null }): Promise<CreateResult> {
   const source = input.source ?? 'manual';
   const detected = source !== 'manual';
   const status = input.status ?? (detected ? 'pending' : 'confirmed');
@@ -246,9 +246,9 @@ export async function createTransaction(db: Db, userId: string, input: TxInput):
 
   const r = await one(
     db,
-    `INSERT INTO transactions(user_id,type,amount,to_amount,currency,occurred_at,account_id,to_account_id,category_id,merchant,payment_method,description,tags,nature,status,source,needs_review,external_id,source_label,import_id,debt_id,goal_id,refund_of,duplicate_of)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING *`,
-    [userId, t.type, t.amount, t.to_amount ?? null, t.currency, t.occurred_at, t.account_id, t.to_account_id ?? null, t.category_id ?? null, t.merchant ?? null, t.payment_method ?? null, t.description ?? null, t.tags, t.nature ?? null, t.status, t.source, t.needs_review, t.external_id ?? null, t.source_label ?? null, t.import_id ?? null, t.debt_id ?? null, t.goal_id ?? null, t.refund_of ?? null, t.duplicate_of ?? null],
+    `INSERT INTO transactions(user_id,type,amount,to_amount,currency,occurred_at,account_id,to_account_id,category_id,merchant,payment_method,description,tags,nature,status,source,needs_review,external_id,source_label,import_id,debt_id,goal_id,refund_of,duplicate_of,account_pending,review_hint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING *`,
+    [userId, t.type, t.amount, t.to_amount ?? null, t.currency, t.occurred_at, t.account_id, t.to_account_id ?? null, t.category_id ?? null, t.merchant ?? null, t.payment_method ?? null, t.description ?? null, t.tags, t.nature ?? null, t.status, t.source, t.needs_review, t.external_id ?? null, t.source_label ?? null, t.import_id ?? null, t.debt_id ?? null, t.goal_id ?? null, t.refund_of ?? null, t.duplicate_of ?? null, Boolean(t.account_pending), t.review_hint ?? null],
   );
   await audit(db, userId, 'transaction', r.id, 'create', null, r);
   return { tx: r, duplicate: false, flagged: Boolean(dup) };
@@ -272,13 +272,14 @@ export async function updateTransaction(db: Db, userId: string, txId: string, pa
   // Un gasto con devoluciones no puede quedar por debajo de lo ya reembolsado.
   if (before.type === 'expense') {
     const refunded = await one<{ s: number }>(db, `SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE refund_of=$1 AND status<>'void'`, [txId]);
-    if (t.type !== 'expense' || t.amount < refunded!.s || t.account_id !== before.account_id) throw conflict('Este gasto tiene devoluciones registradas: anúlalas antes de cambiar su tipo, cuenta o importe', 'has_refunds');
+    if (refunded!.s > 0 && (t.type !== 'expense' || t.amount < refunded!.s || t.account_id !== before.account_id)) throw conflict('Este gasto tiene devoluciones registradas: anúlalas antes de cambiar su tipo, cuenta o importe', 'has_refunds');
   }
   const r = await one(
     db,
-    `UPDATE transactions SET type=$3,amount=$4,to_amount=$5,currency=$6,occurred_at=$7,account_id=$8,to_account_id=$9,category_id=$10,merchant=$11,payment_method=$12,description=$13,tags=$14,nature=$15,debt_id=$16,goal_id=$17,refund_of=$18,updated_at=now()
+    `UPDATE transactions SET type=$3,amount=$4,to_amount=$5,currency=$6,occurred_at=$7,account_id=$8,to_account_id=$9,category_id=$10,merchant=$11,payment_method=$12,description=$13,tags=$14,nature=$15,debt_id=$16,goal_id=$17,refund_of=$18,
+            account_pending = CASE WHEN $19 THEN false ELSE account_pending END, review_hint = CASE WHEN $20 THEN NULL ELSE review_hint END, updated_at=now()
       WHERE id=$1 AND user_id=$2 RETURNING *`,
-    [txId, userId, t.type, t.amount, t.to_amount ?? null, t.currency, t.occurred_at, t.account_id, t.to_account_id ?? null, t.category_id ?? null, t.merchant ?? null, t.payment_method ?? null, t.description ?? null, t.tags, t.nature ?? null, t.debt_id ?? null, t.goal_id ?? null, t.refund_of ?? null],
+    [txId, userId, t.type, t.amount, t.to_amount ?? null, t.currency, t.occurred_at, t.account_id, t.to_account_id ?? null, t.category_id ?? null, t.merchant ?? null, t.payment_method ?? null, t.description ?? null, t.tags, t.nature ?? null, t.debt_id ?? null, t.goal_id ?? null, t.refund_of ?? null, (patch as Row).account_id !== undefined, (patch as Row).amount !== undefined],
   );
   await audit(db, userId, 'transaction', txId, 'update', before, r);
   return r;
@@ -314,6 +315,7 @@ export async function confirmTransaction(db: Db, userId: string, txId: string, p
     before = await getTx(db, userId, txId);
   }
   if (before.status === 'confirmed' && !before.needs_review) return before;
+  if (before.account_pending) throw badRequest('Primero elige de qué tarjeta o cuenta es este movimiento', 'account_pending', { account_id: 'Elige la tarjeta o cuenta' });
   const t = await validateTx(db, userId, { ...before, occurred_at: before.occurred_at.toISOString(), status: 'confirmed' }, txId);
   void t;
   const r = await one(db, `UPDATE transactions SET status='confirmed', needs_review=false, updated_at=now() WHERE id=$1 AND user_id=$2 RETURNING *`, [txId, userId]);
